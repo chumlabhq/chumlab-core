@@ -5,7 +5,6 @@ Powers the kern-ui frontend.
 
 - **Razorpay Standard Checkout** (create order + verify signature + webhook)
 - **Feedback** API (matches `BuyMeCoffee.tsx` payload)
-- **Support** API
 - **AI Playground onboarding** API with Google OAuth verification
   (matches `PlaygroundOnboarding.tsx` + `mockApi.ts`)
 
@@ -90,28 +89,6 @@ Content-Type: application/json
 | POST   | `/api/feedback`     | Submit            |
 | GET    | `/api/feedback`     | List (paginated)  |
 | GET    | `/api/feedback/:id` | Get one           |
-
-### Support
-
-```http
-POST /api/support
-Content-Type: application/json
-
-{
-  "name": "...",
-  "email": "...",
-  "subject": "...",
-  "message": "...",
-  "priority": "low|normal|high|urgent"   // optional, default "normal"
-}
-```
-
-| Method | Path                       | Description       |
-| ------ | -------------------------- | ----------------- |
-| POST   | `/api/support`             | Open ticket       |
-| GET    | `/api/support`             | List (paginated)  |
-| GET    | `/api/support/:id`         | Get one           |
-| PATCH  | `/api/support/:id/status`  | Update status     |
 
 ### Playground onboarding (matches `PlaygroundOnboarding.tsx`)
 
@@ -252,9 +229,9 @@ chumlab-be/
     app.js
     config/{db.js, razorpay.js, google.js}
     middleware/errorHandler.js
-    models/{Order, Feedback, Support, PlaygroundOnboarding}.js
-    controllers/{payment, feedback, support, playground}.controller.js
-    routes/{payment, feedback, support, playground}.routes.js
+    models/{Order, Feedback, PlaygroundOnboarding, User}.js
+    controllers/{auth, payment, feedback, playground}.controller.js
+    routes/{auth, payment, feedback, playground}.routes.js
     utils/{asyncHandler, ApiError}.js
 ```
 # chumlab-core

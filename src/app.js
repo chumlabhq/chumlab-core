@@ -13,7 +13,6 @@ const initPassport = require('./config/passport');
 const authRoutes = require('./routes/auth.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const feedbackRoutes = require('./routes/feedback.routes');
-const supportRoutes = require('./routes/support.routes');
 const playgroundRoutes = require('./routes/playground.routes');
 
 initPassport();
@@ -60,7 +59,6 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api', paymentRoutes);
 app.use('/api/feedback', feedbackRoutes);
-app.use('/api/support', supportRoutes);
 app.use('/api/playground', playgroundRoutes);
 
 app.use((req, res) => {

@@ -4,13 +4,19 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
+const passport = require('passport');
 
 const errorHandler = require('./middleware/errorHandler');
+const initPassport = require('./config/passport');
 
+const authRoutes = require('./routes/auth.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const feedbackRoutes = require('./routes/feedback.routes');
 const supportRoutes = require('./routes/support.routes');
 const playgroundRoutes = require('./routes/playground.routes');
+
+initPassport();
 
 const app = express();
 
@@ -29,6 +35,8 @@ app.use(
 );
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(passport.initialize());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 const apiLimiter = rateLimit({
@@ -49,6 +57,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+app.use('/api/auth', authRoutes);
 app.use('/api', paymentRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/support', supportRoutes);

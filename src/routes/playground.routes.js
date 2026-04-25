@@ -1,10 +1,10 @@
 const express = require('express');
 const ctrl = require('../controllers/playground.controller');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.post('/auth/google', ctrl.googleAuth);
-router.post('/onboard', ctrl.onboard);
+router.post('/onboard', requireAuth, ctrl.onboard);
 router.get('/onboardings', ctrl.list);
 router.get('/onboardings/count', ctrl.count);
 

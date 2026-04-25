@@ -1,5 +1,4 @@
 const PlaygroundOnboarding = require('../models/PlaygroundOnboarding');
-const { verifyGoogleCredential, computeInitials } = require('../config/google');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -13,25 +12,8 @@ function estimatedWaitFromPosition(position) {
   return '4-6 weeks';
 }
 
-exports.googleAuth = asyncHandler(async (req, res) => {
-  const { credential } = req.body || {};
-  const profile = await verifyGoogleCredential(credential);
-
-  res.json({
-    success: true,
-    user: {
-      sub: profile.sub,
-      name: profile.name,
-      email: profile.email,
-      picture: profile.picture,
-      initials: profile.initials,
-    },
-  });
-});
-
 exports.onboard = asyncHandler(async (req, res) => {
   const {
-    credential,
     role,
     context,
     contextLabel,
@@ -59,16 +41,15 @@ exports.onboard = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'requirements must be 500 characters or fewer');
   }
 
-  const profile = await verifyGoogleCredential(credential);
-
+  const authedUser = req.user;
   const userBlock = {
-    name: profile.name || profile.email.split('@')[0],
-    email: profile.email,
-    initials: profile.initials || computeInitials(profile.name, profile.email),
-    picture: profile.picture,
+    name: authedUser.name,
+    email: authedUser.email,
+    initials: authedUser.initials,
+    picture: authedUser.picture,
   };
 
-  const existing = await PlaygroundOnboarding.findOne({ googleSub: profile.sub });
+  const existing = await PlaygroundOnboarding.findOne({ googleSub: authedUser.googleSub });
   if (existing) {
     return res.status(200).json({
       success: true,
@@ -83,7 +64,7 @@ exports.onboard = asyncHandler(async (req, res) => {
   const position = (await PlaygroundOnboarding.countDocuments({})) + 1;
 
   const doc = await PlaygroundOnboarding.create({
-    googleSub: profile.sub,
+    googleSub: authedUser.googleSub,
     user: userBlock,
     role,
     context,

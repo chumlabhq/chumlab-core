@@ -1,0 +1,36 @@
+{
+  "name": "chumlab-be",
+  "version": "1.0.0",
+  "description": "Chumlab backend - Express + MongoDB API with Razorpay, feedback, support, and AI playground waitlist",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "razorpay",
+    "chumlab"
+  ],
+  "author": "Chumlab",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "google-auth-library": "^9.14.2",
+    "helmet": "^8.0.0",
+    "mongoose": "^8.8.1",
+    "morgan": "^1.10.0",
+    "razorpay": "^2.9.5",
+    "validator": "^13.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

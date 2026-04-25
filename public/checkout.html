@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chumlab Razorpay Standard Checkout Demo</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        max-width: 480px;
+        margin: 60px auto;
+        padding: 24px;
+        color: #111;
+      }
+      h1 { margin-bottom: 4px; }
+      .sub { color: #555; margin-bottom: 28px; }
+      label { display: block; font-size: 13px; color: #333; margin: 12px 0 4px; }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      button {
+        margin-top: 24px;
+        width: 100%;
+        padding: 12px;
+        background: #3b82f6;
+        color: white;
+        border: 0;
+        border-radius: 6px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { background: #94a3b8; cursor: not-allowed; }
+      #status {
+        margin-top: 18px;
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+      .err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+      .info { background: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; }
+    </style>
+  </head>
+  <body>
+    <h1>Chumlab Pay</h1>
+    <div class="sub">Razorpay Standard Checkout demo</div>
+
+    <label for="amount">Amount (in rupees)</label>
+    <input id="amount" type="number" min="1" step="1" value="499" />
+
+    <label for="name">Name</label>
+    <input id="name" type="text" value="Test User" />
+
+    <label for="email">Email</label>
+    <input id="email" type="email" value="test@example.com" />
+
+    <label for="contact">Contact</label>
+    <input id="contact" type="tel" value="9999999999" />
+
+    <button id="payBtn">Pay now</button>
+
+    <div id="status"></div>
+
+    <script>
+      const API_BASE = window.location.origin;
+      const btn = document.getElementById('payBtn');
+      const statusEl = document.getElementById('status');
+
+      function setStatus(msg, type) {
+        statusEl.textContent = msg;
+        statusEl.className = type || '';
+      }
+
+      btn.addEventListener('click', async () => {
+        const amountRupees = Number(document.getElementById('amount').value);
+        const name = document.getElementById('name').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const contact = document.getElementById('contact').value.trim();
+
+        if (!Number.isFinite(amountRupees) || amountRupees < 1) {
+          return setStatus('Enter a valid amount (>= ₹1)', 'err');
+        }
+
+        btn.disabled = true;
+        setStatus('Creating order...', 'info');
+
+        let order;
+        try {
+          const resp = await fetch(`${API_BASE}/api/create-order`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              amount: Math.round(amountRupees * 100),
+              currency: 'INR',
+              receipt: `rcpt_${Date.now()}`,
+              customer: { name, email, contact },
+            }),
+          });
+          order = await resp.json();
+          if (!resp.ok || !order.success) {
+            throw new Error(order.message || 'Failed to create order');
+          }
+        } catch (err) {
+          btn.disabled = false;
+          return setStatus(`Order error: ${err.message}`, 'err');
+        }
+
+        const options = {
+          key: order.key_id,
+          amount: order.amount,
+          currency: order.currency,
+          name: 'Chumlab',
+          description: 'Standard Checkout Demo',
+          order_id: order.order_id,
+          prefill: { name, email, contact },
+          theme: { color: '#3b82f6' },
+          handler: async (response) => {
+            setStatus('Verifying payment...', 'info');
+            try {
+              const verifyResp = await fetch(`${API_BASE}/api/verify-payment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                }),
+              });
+              const data = await verifyResp.json();
+              if (!verifyResp.ok || !data.success) {
+                throw new Error(data.message || 'Verification failed');
+              }
+              setStatus(
+                `Payment verified.\nOrder: ${data.order_id}\nPayment: ${data.payment_id}`,
+                'ok'
+              );
+            } catch (err) {
+              setStatus(`Verify error: ${err.message}`, 'err');
+            } finally {
+              btn.disabled = false;
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              btn.disabled = false;
+              setStatus('Payment cancelled by user', 'err');
+            },
+          },
+        };
+
+        const rzp = new Razorpay(options);
+
+        rzp.on('payment.failed', (resp) => {
+          btn.disabled = false;
+          const e = resp.error || {};
+          setStatus(
+            `Payment failed: ${e.description || 'unknown'}\nReason: ${e.reason || '-'}\nStep: ${e.step || '-'}`,
+            'err'
+          );
+        });
+
+        rzp.open();
+      });
+    </script>
+  </body>
+</html>

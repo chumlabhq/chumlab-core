@@ -1,0 +1,54 @@
+name: Deploy chumlab-be to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one deploy at a time. New pushes wait for the in-flight one to finish
+# instead of stacking up; protects against half-applied state.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Trigger remote deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script_stop: true
+          envs: GITHUB_SHA
+          script: |
+            set -euo pipefail
+            cd /var/www/chumlab-be
+
+            echo "→ deploying ${GITHUB_SHA:0:7}"
+            git fetch --all --prune
+            git reset --hard origin/main
+
+            npm ci --omit=dev
+
+            # Reload (zero-downtime) if running, otherwise start fresh.
+            pm2 startOrReload deploy/ecosystem.config.cjs --update-env
+            pm2 save
+
+            # Smoke-test against the local Node port (skipping nginx + cert).
+            echo "→ healthcheck"
+            for i in 1 2 3 4 5; do
+              if curl -fsS http://127.0.0.1:5000/api/health >/dev/null; then
+                echo "✓ healthy"; exit 0
+              fi
+              sleep 2
+            done
+            echo "✗ healthcheck failed"
+            pm2 logs chumlab-be --lines 50 --nostream
+            exit 1

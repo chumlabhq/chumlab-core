@@ -88,6 +88,20 @@ exports.onboard = asyncHandler(async (req, res) => {
   });
 });
 
+exports.getMine = asyncHandler(async (req, res) => {
+  const doc = await PlaygroundOnboarding.findOne({ googleSub: req.user.googleSub });
+  if (!doc) {
+    return res.json({ success: true, onboarding: null });
+  }
+  res.json({
+    success: true,
+    onboarding: doc,
+    submittedAt: doc.createdAt.toISOString(),
+    position: doc.position,
+    estimatedWait: estimatedWaitFromPosition(doc.position),
+  });
+});
+
 exports.list = asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);

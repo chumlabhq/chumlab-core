@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const PlaygroundOnboarding = require('../models/PlaygroundOnboarding');
 const ApiError = require('../utils/ApiError');
 
 const COOKIE_NAME = 'chumlab_token';
@@ -56,10 +57,43 @@ async function requireAuth(req, _res, next) {
   }
 }
 
+function requireAdmin(req, _res, next) {
+  const allowlist = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  if (!req.user || !allowlist.includes(req.user.email)) {
+    return next(new ApiError(403, 'Admin access required'));
+  }
+  next();
+}
+
+async function requirePlaygroundAccess(req, _res, next) {
+  try {
+    const onboarding = await PlaygroundOnboarding.findOne({ googleSub: req.user.googleSub });
+    if (!onboarding || !['invited', 'onboarded'].includes(onboarding.status)) {
+      throw new ApiError(403, 'Playground access requires an invite', {
+        code: 'not_invited',
+        position: onboarding ? onboarding.position : null,
+        estimatedWait: onboarding
+          ? PlaygroundOnboarding.estimatedWaitFromPosition(onboarding.position)
+          : null,
+      });
+    }
+
+    req.playgroundOnboarding = onboarding;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   COOKIE_NAME,
   COOKIE_MAX_AGE_MS,
   cookieOptions,
   signToken,
   requireAuth,
+  requireAdmin,
+  requirePlaygroundAccess,
 };

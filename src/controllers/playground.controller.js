@@ -4,13 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const ROLES = PlaygroundOnboarding.ROLES;
 const BUDGET_TIERS = PlaygroundOnboarding.BUDGET_TIERS;
-
-function estimatedWaitFromPosition(position) {
-  if (position <= 50) return 'Within 1 week';
-  if (position <= 150) return '1-2 weeks';
-  if (position <= 300) return '2-4 weeks';
-  return '4-6 weeks';
-}
+const estimatedWaitFromPosition = PlaygroundOnboarding.estimatedWaitFromPosition;
 
 exports.onboard = asyncHandler(async (req, res) => {
   const {

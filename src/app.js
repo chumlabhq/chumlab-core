@@ -15,6 +15,7 @@ const paymentRoutes = require('./routes/payment.routes');
 const feedbackRoutes = require('./routes/feedback.routes');
 const playgroundRoutes = require('./routes/playground.routes');
 const generationRoutes = require('./routes/generation.routes');
+const adminRoutes = require('./routes/admin.routes');
 
 initPassport();
 
@@ -62,6 +63,7 @@ app.use('/api', paymentRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/playground', playgroundRoutes);
 app.use('/api/generation', generationRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` });

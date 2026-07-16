@@ -13,6 +13,8 @@ const stages = {
 
 // Shared budget across server-side (lint/type) and client-reported (render)
 // fix rounds - the render fix endpoint resumes against the same counter.
+// TODO(phase-10 eval): regression test - mixed-gate exhaustion (lint-fail ->
+// type-fail -> type-fail) must cap at 3 total model calls, one shared budget.
 const MAX_FIX_ROUNDS = 2;
 
 const FIX_PROMPT_PATH = path.join(__dirname, 'prompts', 'fix.txt');

@@ -1,7 +1,7 @@
 # chumlab-be
 
 Node.js + Express + MongoDB backend for [chumlab](https://chumlab.com).
-Powers the kern-ui frontend.
+Powers the chumlab-fe frontend.
 
 - **Razorpay Standard Checkout** (create order + verify signature + webhook)
 - **Feedback** API (matches `BuyMeCoffee.tsx` payload)
@@ -161,7 +161,7 @@ matching the spirit of a waitlist that doesn't double-count.
 | GET    | `/api/playground/onboardings`       | List (paginated, ordered)  |
 | GET    | `/api/playground/onboardings/count` | Total signups              |
 
-## Frontend wiring (kern-ui)
+## Frontend wiring (chumlab-fe)
 
 ### Replace `mockSignInWithGoogle` in `src/pages/playground/mockApi.ts`
 

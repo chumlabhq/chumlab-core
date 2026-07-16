@@ -1,0 +1,1 @@
+Your previous file failed deterministic verification. Fix ONLY the issues listed below - do not restructure, restyle, or change anything unrelated. Keep every import on the allowlist and keep the design tokens. Return the complete corrected file in a single ```tsx block; a one-line <plan> note on what you fixed is optional.

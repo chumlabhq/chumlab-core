@@ -1,10 +1,13 @@
 const express = require('express');
 const ctrl = require('../controllers/playground.controller');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const generationCtrl = require('../controllers/generation.controller');
+const { requireAuth, requireAdmin, requirePlaygroundAccess } = require('../middleware/auth');
+const { perUserQuota } = require('../middleware/quota');
 
 const router = express.Router();
 
 router.post('/onboard', requireAuth, ctrl.onboard);
+router.post('/generate', requireAuth, requirePlaygroundAccess, perUserQuota, generationCtrl.generate);
 router.get('/me', requireAuth, ctrl.getMine);
 router.get('/onboardings', requireAuth, requireAdmin, ctrl.list);
 router.get('/onboardings/count', ctrl.count);

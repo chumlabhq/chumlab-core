@@ -6,8 +6,10 @@ const stages = {
   qa: require('./stages/qa'),
 };
 
-async function runPipeline({ run, res }) {
-  throw new Error('runPipeline is not implemented');
+// Single-shot for now: router/plan/verify/qa slot in around develop in later
+// phases; the registry above already carries their stubs.
+async function runPipeline(ctx) {
+  return stages.develop.run(ctx);
 }
 
 module.exports = { stages, runPipeline };

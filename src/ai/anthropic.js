@@ -1,19 +1,33 @@
 let client = null;
 
+const DEFAULT_MODEL = 'claude-sonnet-5';
+const DEFAULT_MAX_TOKENS = 8192;
+
 function getClient() {
   if (client) return client;
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not configured on the server');
   }
-  // Lazy require: the SDK dependency lands with the develop stage (Phase 3),
-  // and nothing else on the API should fail to boot without it.
   const Anthropic = require('@anthropic-ai/sdk');
   client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   return client;
 }
 
-async function streamMessage({ model, system, messages, maxTokens, onDelta }) {
-  throw new Error('streamMessage is not implemented');
+async function streamMessage({ system, messages, maxTokens, onDelta }) {
+  const stream = getClient().messages.stream({
+    model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
+    max_tokens: maxTokens || DEFAULT_MAX_TOKENS,
+    // The system prompt carries the full 100k+ token component reference -
+    // cache it server-side so repeat generations skip re-ingesting it.
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    messages,
+  });
+  if (onDelta) stream.on('text', onDelta);
+  const final = await stream.finalMessage();
+  return final.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('');
 }
 
 module.exports = { getClient, streamMessage };

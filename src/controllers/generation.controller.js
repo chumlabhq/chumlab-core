@@ -9,8 +9,15 @@ const { runPipeline, buildFixMessage, MAX_FIX_ROUNDS } = require('../ai/orchestr
 const PROMPT_MAX_LENGTH = 4000;
 const HISTORY_LIMIT = 20;
 
-function verifyStages(result, previous) {
-  const stages = { develop: { status: 'done' } };
+function buildStages(result, previous) {
+  const stages = {
+    develop: { status: 'done', ...(result.truncationRetried ? { truncationRetried: true } : {}) },
+  };
+  // Fix continuations skip routing - carry the original run's router/plan.
+  if (result.tier) stages.router = { tier: result.tier };
+  else if (previous && previous.router) stages.router = previous.router;
+  if (result.plan) stages.plan = { status: 'done', text: result.plan };
+  else if (previous && previous.plan) stages.plan = previous.plan;
   if (result.verifyStatus) {
     stages.verify = {
       status: result.verifyStatus,
@@ -69,7 +76,7 @@ exports.generate = asyncHandler(async (req, res) => {
     run.status = 'done';
     run.fixRounds = result.roundsUsed;
     run.verifyStatus = result.verifyStatus;
-    run.stages = verifyStages(result);
+    run.stages = buildStages(result);
     await run.save();
 
     // First successful generation moves the user off the waitlist.
@@ -136,6 +143,7 @@ exports.fixRun = asyncHandler(async (req, res) => {
       chatId: String(run.chatId),
       res,
       roundsUsed: run.fixRounds + 1,
+      tier: (run.stages && run.stages.router && run.stages.router.tier) || null,
       messages: [
         ...history.map((m) => ({ role: m.role, content: m.content })),
         { role: 'user', content: buildFixMessage([renderError]) },
@@ -147,7 +155,7 @@ exports.fixRun = asyncHandler(async (req, res) => {
     await failing.save();
     run.fixRounds = result.roundsUsed;
     run.verifyStatus = result.verifyStatus;
-    run.stages = verifyStages(result, run.stages);
+    run.stages = buildStages(result, run.stages);
     await run.save();
 
     res.end();

@@ -13,6 +13,20 @@ function getClient() {
   return client;
 }
 
+async function sendMessage({ model, system, messages, maxTokens, temperature }) {
+  const response = await getClient().messages.create({
+    model: model || process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
+    max_tokens: maxTokens || 1024,
+    ...(temperature != null ? { temperature } : {}),
+    ...(system ? { system } : {}),
+    messages,
+  });
+  return response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('');
+}
+
 async function streamMessage({ system, messages, maxTokens, onDelta }) {
   const stream = getClient().messages.stream({
     model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
@@ -24,10 +38,13 @@ async function streamMessage({ system, messages, maxTokens, onDelta }) {
   });
   if (onDelta) stream.on('text', onDelta);
   const final = await stream.finalMessage();
-  return final.content
+  const text = final.content
     .filter((block) => block.type === 'text')
     .map((block) => block.text)
     .join('');
+  // stop_reason 'max_tokens' means the output was truncated mid-file - the
+  // orchestrator retries or fails instead of verifying garbage.
+  return { text, stopReason: final.stop_reason };
 }
 
-module.exports = { getClient, streamMessage };
+module.exports = { getClient, sendMessage, streamMessage };

@@ -1,0 +1,18 @@
+Before writing any code, produce ONLY a build plan for the request above - no code and no ```tsx block in this response.
+
+Format exactly:
+
+## Inventory
+- Chumlab: <the @chumlab/ui components you will use>
+- From scratch: <the token-styled pieces you will build>
+
+## Structure
+<the layout, region by region, brief>
+
+## States
+<loading / empty / error / edge states you will cover>
+
+## Subtasks
+1. <ordered build steps: shell first, then regions, then wiring>
+
+Keep it under 200 words. The Subtasks section is required only for page-scale builds; omit it for smaller work.

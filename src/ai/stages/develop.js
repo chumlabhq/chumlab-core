@@ -20,16 +20,17 @@ function developPrompt() {
 }
 
 async function run(ctx) {
-  const { runId, chatId, res, messages } = ctx;
+  const { runId, chatId, res, messages, maxTokens } = ctx;
   sendEvent(res, { runId, stage: 'develop', status: 'start', payload: { chatId } });
-  const text = await streamMessage({
+  const { text, stopReason } = await streamMessage({
     system: developPrompt(),
     messages,
+    maxTokens,
     onDelta: (chunk) =>
       sendEvent(res, { runId, stage: 'develop', status: 'delta', payload: { text: chunk } }),
   });
   sendEvent(res, { runId, stage: 'develop', status: 'done', payload: { chatId } });
-  return text;
+  return { text, stopReason };
 }
 
-module.exports = { run };
+module.exports = { run, developPrompt };

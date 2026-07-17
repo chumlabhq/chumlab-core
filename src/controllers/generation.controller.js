@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { initSSE, sendEvent } = require('../ai/sse');
 const { runPipeline, buildFixMessage, MAX_FIX_ROUNDS } = require('../ai/orchestrator');
+const { normalizeImage } = require('../services/assets');
 
 const PROMPT_MAX_LENGTH = 4000;
 const HISTORY_LIMIT = 20;
@@ -39,17 +40,20 @@ exports.health = asyncHandler(async (_req, res) => {
 exports.generate = asyncHandler(async (req, res) => {
   const { chatId } = req.body || {};
   const prompt = String((req.body && req.body.prompt) || '').trim();
-  if (!prompt) throw new ApiError(400, 'prompt is required');
+  const image = normalizeImage(req.body && req.body.image);
+  // With a screenshot the prompt is optional (rebuild what's shown).
+  if (!prompt && !image) throw new ApiError(400, 'prompt or image is required');
   if (prompt.length > PROMPT_MAX_LENGTH) {
     throw new ApiError(400, `prompt must be ${PROMPT_MAX_LENGTH} characters or fewer`);
   }
+  const effectivePrompt = prompt || 'Rebuild the attached screenshot as Chumlab components.';
 
   let chat;
   if (chatId) {
     chat = await Chat.findById(chatId);
     if (!chat || !chat.userId.equals(req.user._id)) throw new ApiError(404, 'Chat not found');
   } else {
-    chat = await Chat.create({ userId: req.user._id, title: prompt.slice(0, 120) });
+    chat = await Chat.create({ userId: req.user._id, title: (prompt || 'Screenshot rebuild').slice(0, 120) });
   }
 
   const history = (
@@ -61,7 +65,7 @@ exports.generate = asyncHandler(async (req, res) => {
     chatId: chat._id,
     status: 'running',
   });
-  await Message.create({ chatId: chat._id, role: 'user', content: prompt });
+  await Message.create({ chatId: chat._id, role: 'user', content: effectivePrompt, image });
 
   initSSE(res);
   const runId = String(run._id);
@@ -70,9 +74,10 @@ exports.generate = asyncHandler(async (req, res) => {
       runId,
       chatId: String(chat._id),
       res,
+      image,
       messages: [
         ...history.map((m) => ({ role: m.role, content: m.content })),
-        { role: 'user', content: prompt },
+        { role: 'user', content: effectivePrompt },
       ],
     });
 
@@ -228,7 +233,9 @@ exports.resumeRun = asyncHandler(async (req, res) => {
     await Message.find({ chatId: run.chatId }).sort({ createdAt: -1 }).limit(HISTORY_LIMIT)
   ).reverse();
   // The paused user prompt is the last stored turn - replace it with the
-  // clarified build message so the model gets one coherent request.
+  // clarified build message so the model gets one coherent request. Carry its
+  // screenshot forward so a paused vision build still sees the image on resume.
+  const pausedImage = history.length ? history[history.length - 1].image : null;
   const priorHistory = history.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
   await Message.create({ chatId: run.chatId, role: 'user', content: displayText });
 
@@ -245,6 +252,7 @@ exports.resumeRun = asyncHandler(async (req, res) => {
       resumed: true,
       tier: clarify.tier,
       assumptions: clarify.assumptions,
+      image: pausedImage,
       messages: [...priorHistory, { role: 'user', content: modelPrompt }],
     });
 

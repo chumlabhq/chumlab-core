@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { sendMessage } = require('../anthropic');
 const { sendEvent } = require('../sse');
+const { toUserContent } = require('../../services/assets');
 
 const PROMPT_PATH = path.join(__dirname, '..', 'prompts', 'clarify.txt');
 
@@ -34,16 +35,21 @@ function parseDecision(reply) {
 // the request, not the library. Any failure passes through silently - clarify
 // must never block a build.
 async function run(ctx) {
-  const { runId, res, prompt } = ctx;
+  const { runId, res, prompt, image } = ctx;
   sendEvent(res, { runId, stage: 'clarify', status: 'start', payload: {} });
 
   let decision = { questions: [], assumptions: '' };
   try {
+    // With a screenshot attached, clarify sees the UI - it must triage from
+    // the image, not just the (often empty) text.
+    const text = image
+      ? `A screenshot is attached - it is the spec.\nRequest: ${prompt || '(rebuild the attached screenshot)'}`
+      : `Request: ${prompt}`;
     const reply = await sendMessage({
       stage: 'clarify',
       system: clarifyPrompt(),
       maxTokens: 512,
-      messages: [{ role: 'user', content: `Request: ${prompt}` }],
+      messages: [{ role: 'user', content: toUserContent(text, image) }],
     });
     decision = parseDecision(reply);
   } catch {

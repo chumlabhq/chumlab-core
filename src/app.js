@@ -35,9 +35,10 @@ app.use(
     credentials: true,
   })
 );
-// Generation accepts larger payloads (Phase 8 adds image blocks); the global
-// parser skips bodies this route-scoped one already handled.
-app.use('/api/playground/generate', express.json({ limit: '10mb' }));
+// Generation accepts larger payloads (base64 screenshot on vision turns); the
+// global parser skips bodies this route-scoped one already handled. nginx cap
+// is Phase 10.
+app.use('/api/playground/generate', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

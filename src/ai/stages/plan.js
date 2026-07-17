@@ -3,6 +3,7 @@ const path = require('path');
 const { streamMessage } = require('../anthropic');
 const { sendEvent } = require('../sse');
 const { developPrompt } = require('./develop');
+const { toUserContent } = require('../../services/assets');
 
 const PROMPT_PATH = path.join(__dirname, '..', 'prompts', 'plan.txt');
 
@@ -18,9 +19,11 @@ function planPrompt() {
 // develop system prompt so the plan knows the real component inventory and
 // the cache stays warm; the plan-only instruction rides the user turn.
 async function run(ctx) {
-  const { runId, res, messages } = ctx;
+  const { runId, res, messages, image } = ctx;
   sendEvent(res, { runId, stage: 'plan', status: 'start', payload: {} });
 
+  // Plan reasons from the screenshot when one is attached (region-by-region),
+  // so it rides the same user turn as the plan instruction.
   const lastUser = messages[messages.length - 1];
   const { text } = await streamMessage({
     stage: 'plan',
@@ -28,7 +31,7 @@ async function run(ctx) {
     maxTokens: 1024,
     messages: [
       ...messages.slice(0, -1),
-      { role: 'user', content: `${lastUser.content}\n\n${planPrompt()}` },
+      { role: 'user', content: toUserContent(`${lastUser.content}\n\n${planPrompt()}`, image) },
     ],
     onDelta: (chunk) =>
       sendEvent(res, { runId, stage: 'plan', status: 'delta', payload: { text: chunk } }),

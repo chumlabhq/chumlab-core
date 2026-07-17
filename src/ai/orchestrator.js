@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { sendEvent } = require('./sse');
 const { verify } = require('./verify');
+const { toUserContent } = require('../services/assets');
 
 const stages = {
   router: require('./stages/router'),
@@ -95,17 +96,20 @@ async function runPipeline(ctx) {
 
   // Fix continuations arrive with roundsUsed primed; resume continuations set
   // `resumed` - both skip router/clarify (the path was already chosen).
+  const image = ctx.image || null;
+
   if (roundsUsed === 0 && !ctx.resumed) {
     const lastUser = messages[messages.length - 1];
     const hasPriorCode = messages.some(
-      (m) => m.role === 'assistant' && m.content.includes('```tsx')
+      (m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.includes('```tsx')
     );
-    tier = await stages.router.run({ runId, res, prompt: lastUser.content, hasPriorCode });
+    // The screenshot informs the tier (a full page routes multi/full).
+    tier = await stages.router.run({ runId, res, prompt: lastUser.content, hasPriorCode, image });
 
     // Clarify only where the answer could change the whole build, and never
     // on a follow-up edit to existing code.
     if ((tier === 'multi' || tier === 'full') && !hasPriorCode) {
-      const decision = await stages.clarify.run({ runId, res, prompt: lastUser.content });
+      const decision = await stages.clarify.run({ runId, res, prompt: lastUser.content, image });
       if (decision.questions.length) {
         return {
           status: 'needs_input',
@@ -123,7 +127,7 @@ async function runPipeline(ctx) {
 
   if (roundsUsed === 0 && (tier === 'multi' || tier === 'full')) {
     const lastUser = messages[messages.length - 1];
-    plan = await stages.plan.run({ runId, res, messages });
+    plan = await stages.plan.run({ runId, res, messages, image });
     const assumptionNote = assumptions
       ? `\n\nKey assumptions to state briefly in your plan: ${assumptions}`
       : '';
@@ -133,6 +137,17 @@ async function runPipeline(ctx) {
         role: 'user',
         content: `${lastUser.content}\n\n${buildFromPlanPrompt()}\n\nPlan:\n${plan}${assumptionNote}`,
       },
+    ];
+  }
+
+  // Attach the screenshot to the current build turn so develop (and every fix
+  // round) sees it. Only the system block is cached; the image lives in the
+  // user turn, so caching is unaffected.
+  if (roundsUsed === 0 && image) {
+    const last = messages[messages.length - 1];
+    messages = [
+      ...messages.slice(0, -1),
+      { role: last.role, content: toUserContent(last.content, image) },
     ];
   }
 

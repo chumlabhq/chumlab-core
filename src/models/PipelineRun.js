@@ -10,6 +10,9 @@ const pipelineRunSchema = new mongoose.Schema(
     status: { type: String, enum: STATUSES, default: 'queued', index: true },
     fixRounds: { type: Number, default: 0 },
     verifyStatus: { type: String, enum: VERIFY_STATUSES, default: null },
+    // Persisted when a run pauses on clarify: { questions, assumptions, tier,
+    // prompt } - the resume endpoint reads it back.
+    clarify: { type: mongoose.Schema.Types.Mixed, default: null },
     stages: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }

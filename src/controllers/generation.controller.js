@@ -71,6 +71,22 @@ exports.generate = asyncHandler(async (req, res) => {
       ],
     });
 
+    // Clarify paused the run - persist the questions and wait for /resume.
+    // No assistant message yet; the user prompt is already saved.
+    if (result.status === 'needs_input') {
+      run.status = 'needs_input';
+      run.clarify = {
+        questions: result.questions,
+        assumptions: result.assumptions,
+        tier: result.tier,
+        prompt,
+      };
+      run.stages = buildStages(result);
+      await run.save();
+      res.end();
+      return;
+    }
+
     await Message.create({ chatId: chat._id, role: 'assistant', content: result.text });
     await Chat.updateOne({ _id: chat._id }, { $currentDate: { updatedAt: true } });
     run.status = 'done';
@@ -167,6 +183,88 @@ exports.fixRun = asyncHandler(async (req, res) => {
       stage: 'develop',
       status: 'error',
       payload: { message: err.message || 'Fix failed' },
+    });
+    res.end();
+  }
+});
+
+// Resumes a run paused on clarify. Answers (or a skip) come back here, are
+// persisted + injected into the build context, and the run continues Plan ->
+// Develop onward over a fresh SSE response - same transport as /generate/fix.
+exports.resumeRun = asyncHandler(async (req, res) => {
+  const { runId } = req.body || {};
+  const answers = Array.isArray(req.body && req.body.answers) ? req.body.answers : [];
+
+  const run = await PipelineRun.findById(runId);
+  if (!run || !run.userId.equals(req.user._id)) throw new ApiError(404, 'Run not found');
+  if (run.status !== 'needs_input' || !run.clarify) {
+    throw new ApiError(400, 'Run is not awaiting input');
+  }
+
+  const clarify = run.clarify;
+  const questions = clarify.questions || [];
+  const answered = questions
+    .map((q, i) => (answers[i] ? `${q.question} ${answers[i]}` : null))
+    .filter(Boolean);
+
+  let displayText;
+  let modelPrompt;
+  if (answered.length) {
+    displayText = `Clarifications — ${answered.join(' · ')}`;
+    modelPrompt = `${clarify.prompt}\n\nClarifications:\n${answered.map((a) => `- ${a}`).join('\n')}`;
+  } else {
+    displayText = 'Skipped clarifications — building with sensible defaults.';
+    modelPrompt = `${clarify.prompt}\n\nProceed with sensible defaults${clarify.assumptions ? `: ${clarify.assumptions}` : ''}.`;
+  }
+
+  const history = (
+    await Message.find({ chatId: run.chatId }).sort({ createdAt: -1 }).limit(HISTORY_LIMIT)
+  ).reverse();
+  // The paused user prompt is the last stored turn - replace it with the
+  // clarified build message so the model gets one coherent request.
+  const priorHistory = history.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+  await Message.create({ chatId: run.chatId, role: 'user', content: displayText });
+
+  run.status = 'running';
+  run.clarify = { ...clarify, answers };
+  await run.save();
+
+  initSSE(res);
+  try {
+    const result = await runPipeline({
+      runId: String(run._id),
+      chatId: String(run.chatId),
+      res,
+      resumed: true,
+      tier: clarify.tier,
+      assumptions: clarify.assumptions,
+      messages: [...priorHistory, { role: 'user', content: modelPrompt }],
+    });
+
+    await Message.create({ chatId: run.chatId, role: 'assistant', content: result.text });
+    await Chat.updateOne({ _id: run.chatId }, { $currentDate: { updatedAt: true } });
+    run.status = 'done';
+    run.fixRounds = result.roundsUsed;
+    run.verifyStatus = result.verifyStatus;
+    run.stages = buildStages(result, run.stages);
+    await run.save();
+
+    const onboarding = req.playgroundOnboarding;
+    if (onboarding && onboarding.status === 'invited') {
+      onboarding.status = 'onboarded';
+      onboarding.onboardedAt = new Date();
+      await onboarding.save();
+    }
+
+    res.end();
+  } catch (err) {
+    run.status = 'error';
+    await run.save().catch(() => {});
+    sendEvent(res, {
+      runId: String(run._id),
+      stage: 'develop',
+      status: 'error',
+      payload: { message: err.message || 'Generation failed' },
     });
     res.end();
   }

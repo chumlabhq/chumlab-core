@@ -66,30 +66,53 @@ async function runPipeline(ctx) {
   let messages = ctx.messages;
   let roundsUsed = ctx.roundsUsed || 0;
   const attempts = [];
-  // Fix continuations carry the original run's tier so a fix of a large
+  // Fix and resume continuations carry the original run's tier so a large
   // file gets the same output budget the build did.
   let tier = ctx.tier || null;
   let plan = null;
+  let assumptions = ctx.assumptions || '';
 
-  // Fix continuations arrive with roundsUsed primed - the path was already
-  // chosen, only the develop -> verify loop reruns.
-  if (roundsUsed === 0) {
+  // Fix continuations arrive with roundsUsed primed; resume continuations set
+  // `resumed` - both skip router/clarify (the path was already chosen).
+  if (roundsUsed === 0 && !ctx.resumed) {
     const lastUser = messages[messages.length - 1];
     const hasPriorCode = messages.some(
       (m) => m.role === 'assistant' && m.content.includes('```tsx')
     );
     tier = await stages.router.run({ runId, res, prompt: lastUser.content, hasPriorCode });
 
-    if (tier === 'multi' || tier === 'full') {
-      plan = await stages.plan.run({ runId, res, messages });
-      messages = [
-        ...messages.slice(0, -1),
-        {
-          role: 'user',
-          content: `${lastUser.content}\n\n${buildFromPlanPrompt()}\n\nPlan:\n${plan}`,
-        },
-      ];
+    // Clarify only where the answer could change the whole build, and never
+    // on a follow-up edit to existing code.
+    if ((tier === 'multi' || tier === 'full') && !hasPriorCode) {
+      const decision = await stages.clarify.run({ runId, res, prompt: lastUser.content });
+      if (decision.questions.length) {
+        return {
+          status: 'needs_input',
+          questions: decision.questions,
+          assumptions: decision.assumptions,
+          tier,
+          plan: null,
+          roundsUsed,
+          attempts,
+        };
+      }
+      assumptions = decision.assumptions;
     }
+  }
+
+  if (roundsUsed === 0 && (tier === 'multi' || tier === 'full')) {
+    const lastUser = messages[messages.length - 1];
+    plan = await stages.plan.run({ runId, res, messages });
+    const assumptionNote = assumptions
+      ? `\n\nKey assumptions to state briefly in your plan: ${assumptions}`
+      : '';
+    messages = [
+      ...messages.slice(0, -1),
+      {
+        role: 'user',
+        content: `${lastUser.content}\n\n${buildFromPlanPrompt()}\n\nPlan:\n${plan}${assumptionNote}`,
+      },
+    ];
   }
 
   let maxTokens = OUTPUT_BUDGETS[tier] || OUTPUT_BUDGETS.single;

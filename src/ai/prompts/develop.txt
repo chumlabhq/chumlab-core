@@ -139,6 +139,9 @@ InternationalPhoneInput → /international-phone-input.
 - ✗ `range` prop on Slider — pass `value={[min, max]}` (tuple) to enable range mode automatically.
 - ✗ Forgetting `getRowId` on Table when row data mutates — without it, selection/expansion state drifts after reorder/edit.
 - ✗ Reusing one `useState` across multiple component instances with different hardcoded props — clicks in one variant mutate the other's perceived state.
+- ✗ Importing React types as runtime values — React types are TYPES, not runtime values. Import them with `import type` or inline `type` — e.g. `import { useState, type FormEvent } from "react"`. Never import FormEvent, ChangeEvent, ReactNode, etc. as runtime imports; it breaks at module load.
+- ✗ Leaving callback parameter types implicit — always annotate them. e.g. `onValueChange={(v: string) => …}`, `onChange={(e: ChangeEvent<HTMLInputElement>) => …}`. An un-annotated `(v) =>` fails strict typecheck with implicit-any.
+- ✗ Emitting a control with a selected/active state (a chosen dropdown option, an active tab, a checked item) without wiring its selected indicator — verify the checkmark/highlight/active style actually renders; don't ship the control without its selected-state feedback.
 
 ## Choosing a selection component
 | Use | When |

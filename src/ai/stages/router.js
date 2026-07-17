@@ -24,6 +24,7 @@ async function run(ctx) {
   let tier = 'single';
   try {
     const reply = await sendMessage({
+      stage: 'router',
       model: process.env.ANTHROPIC_ROUTER_MODEL || 'claude-haiku-4-5',
       system: routerPrompt(),
       maxTokens: 8,

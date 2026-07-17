@@ -24,6 +24,11 @@ function buildStages(result, previous) {
       attempts: [...((previous && previous.verify && previous.verify.attempts) || []), ...result.attempts],
     };
   }
+  if (result.qaVerdict) {
+    stages.qa = { verdict: result.qaVerdict, findings: result.qaFindings || [] };
+  } else if (previous && previous.qa) {
+    stages.qa = previous.qa;
+  }
   return stages;
 }
 
@@ -92,6 +97,7 @@ exports.generate = asyncHandler(async (req, res) => {
     run.status = 'done';
     run.fixRounds = result.roundsUsed;
     run.verifyStatus = result.verifyStatus;
+    run.qaVerdict = result.qaVerdict;
     run.stages = buildStages(result);
     await run.save();
 
@@ -171,6 +177,7 @@ exports.fixRun = asyncHandler(async (req, res) => {
     await failing.save();
     run.fixRounds = result.roundsUsed;
     run.verifyStatus = result.verifyStatus;
+    run.qaVerdict = result.qaVerdict;
     run.stages = buildStages(result, run.stages);
     await run.save();
 
@@ -246,6 +253,7 @@ exports.resumeRun = asyncHandler(async (req, res) => {
     run.status = 'done';
     run.fixRounds = result.roundsUsed;
     run.verifyStatus = result.verifyStatus;
+    run.qaVerdict = result.qaVerdict;
     run.stages = buildStages(result, run.stages);
     await run.save();
 

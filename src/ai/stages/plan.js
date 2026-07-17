@@ -23,6 +23,7 @@ async function run(ctx) {
 
   const lastUser = messages[messages.length - 1];
   const { text } = await streamMessage({
+    stage: 'plan',
     system: developPrompt(),
     maxTokens: 1024,
     messages: [

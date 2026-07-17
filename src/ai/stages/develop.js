@@ -23,6 +23,7 @@ async function run(ctx) {
   const { runId, chatId, res, messages, maxTokens } = ctx;
   sendEvent(res, { runId, stage: 'develop', status: 'start', payload: { chatId } });
   const { text, stopReason } = await streamMessage({
+    stage: 'develop',
     system: developPrompt(),
     messages,
     maxTokens,

@@ -40,6 +40,7 @@ async function run(ctx) {
   let decision = { questions: [], assumptions: '' };
   try {
     const reply = await sendMessage({
+      stage: 'clarify',
       system: clarifyPrompt(),
       maxTokens: 512,
       messages: [{ role: 'user', content: `Request: ${prompt}` }],

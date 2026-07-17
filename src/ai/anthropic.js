@@ -13,7 +13,19 @@ function getClient() {
   return client;
 }
 
-async function sendMessage({ model, system, messages, maxTokens, temperature }) {
+// One line per model call so every generation's cost/cache behavior is
+// visible in the logs. cache_read > 0 means the cached system prefix hit.
+function logUsage(stage, usage) {
+  if (!usage) return;
+  console.log(
+    `[chumlab-be] usage stage=${stage || 'unknown'} input=${usage.input_tokens || 0} ` +
+      `cache_read=${usage.cache_read_input_tokens || 0} ` +
+      `cache_creation=${usage.cache_creation_input_tokens || 0} ` +
+      `output=${usage.output_tokens || 0}`
+  );
+}
+
+async function sendMessage({ model, system, messages, maxTokens, temperature, stage }) {
   const response = await getClient().messages.create({
     model: model || process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
     max_tokens: maxTokens || 1024,
@@ -21,13 +33,14 @@ async function sendMessage({ model, system, messages, maxTokens, temperature }) 
     ...(system ? { system } : {}),
     messages,
   });
+  logUsage(stage, response.usage);
   return response.content
     .filter((block) => block.type === 'text')
     .map((block) => block.text)
     .join('');
 }
 
-async function streamMessage({ system, messages, maxTokens, onDelta }) {
+async function streamMessage({ system, messages, maxTokens, onDelta, stage }) {
   const stream = getClient().messages.stream({
     model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
     max_tokens: maxTokens || DEFAULT_MAX_TOKENS,
@@ -38,6 +51,7 @@ async function streamMessage({ system, messages, maxTokens, onDelta }) {
   });
   if (onDelta) stream.on('text', onDelta);
   const final = await stream.finalMessage();
+  logUsage(stage, final.usage);
   const text = final.content
     .filter((block) => block.type === 'text')
     .map((block) => block.text)

@@ -1,0 +1,1 @@
+A senior reviewer looked at your code and flagged the issues below. These are not compile errors - they are things that don't match the request or don't work the way a user expects. Fix ONLY these, keep everything else intact, and return the complete corrected file in a single ```tsx block.

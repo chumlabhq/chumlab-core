@@ -25,9 +25,11 @@ const MAX_OUTPUT_TOKENS = parseInt(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS, 10) 
 
 const FIX_PROMPT_PATH = path.join(__dirname, 'prompts', 'fix.txt');
 const BUILD_FROM_PLAN_PATH = path.join(__dirname, 'prompts', 'build-from-plan.txt');
+const QA_FIX_PROMPT_PATH = path.join(__dirname, 'prompts', 'qa-fix.txt');
 
 let cachedFixPrompt = null;
 let cachedBuildFromPlan = null;
+let cachedQaFixPrompt = null;
 
 function fixPrompt() {
   if (cachedFixPrompt) return cachedFixPrompt;
@@ -41,11 +43,24 @@ function buildFromPlanPrompt() {
   return cachedBuildFromPlan;
 }
 
+function qaFixPrompt() {
+  if (cachedQaFixPrompt) return cachedQaFixPrompt;
+  cachedQaFixPrompt = fs.readFileSync(QA_FIX_PROMPT_PATH, 'utf8').trim();
+  return cachedQaFixPrompt;
+}
+
 function buildFixMessage(errors) {
   const lines = errors.map(
     (e) => `- [${e.kind}]${e.loc ? ` ${e.loc}` : ''} ${e.message}`
   );
   return `${fixPrompt()}\n\nErrors:\n${lines.join('\n')}`;
+}
+
+function buildQaFixMessage(findings) {
+  const lines = findings.map(
+    (f) => `- [${f.severity}]${f.location ? ` ${f.location}` : ''} ${f.description}`
+  );
+  return `${qaFixPrompt()}\n\nReview findings:\n${lines.join('\n')}`;
 }
 
 function extractCode(text) {
@@ -71,6 +86,12 @@ async function runPipeline(ctx) {
   let tier = ctx.tier || null;
   let plan = null;
   let assumptions = ctx.assumptions || '';
+  // The raw request for the QA critic - captured before the round-0 block
+  // folds the plan into the last message.
+  const request = (messages[messages.length - 1] || {}).content || '';
+  let qaVerdict = null;
+  let qaFindings = [];
+  let qaFixed = false;
 
   // Fix continuations arrive with roundsUsed primed; resume continuations set
   // `resumed` - both skip router/clarify (the path was already chosen).
@@ -159,6 +180,49 @@ async function runPipeline(ctx) {
           ...(result.typecheckUnavailable ? { typecheckUnavailable: true } : {}),
         },
       });
+
+      // Verify proves it compiles and mounts; QA judges whether it did what
+      // was asked. Runs on multi/full only, in a separate context, and routes
+      // real findings through the SAME bounded fix loop (shared roundsUsed).
+      if (tier === 'multi' || tier === 'full') {
+        sendEvent(res, { runId, stage: 'qa', status: 'start', payload: {} });
+        const review = await stages.qa.run({ request, plan, code });
+        const actionable = review.findings.filter(
+          (f) => f.severity === 'high' || f.severity === 'medium'
+        );
+
+        if (actionable.length) {
+          if (roundsUsed >= MAX_FIX_ROUNDS) {
+            sendEvent(res, {
+              runId,
+              stage: 'qa',
+              status: 'done',
+              payload: { pass: false, exhausted: true, findings: actionable },
+            });
+            qaVerdict = 'delivered_with_warnings';
+            qaFindings = actionable;
+          } else {
+            roundsUsed += 1;
+            qaFixed = true;
+            sendEvent(res, {
+              runId,
+              stage: 'qa',
+              status: 'error',
+              payload: { fixing: true, round: roundsUsed, findings: actionable },
+            });
+            messages = [
+              ...messages,
+              { role: 'assistant', content: text },
+              { role: 'user', content: buildQaFixMessage(actionable) },
+            ];
+            continue;
+          }
+        } else {
+          sendEvent(res, { runId, stage: 'qa', status: 'done', payload: { pass: true, fixed: qaFixed } });
+          qaVerdict = qaFixed ? 'fixed' : 'looks_good';
+        }
+      }
+
       return {
         text,
         code,
@@ -169,6 +233,8 @@ async function runPipeline(ctx) {
         tier,
         plan,
         truncationRetried,
+        qaVerdict,
+        qaFindings,
       };
     }
 

@@ -16,6 +16,19 @@ const pipelineRunSchema = new mongoose.Schema(
     // prompt } - the resume endpoint reads it back.
     clarify: { type: mongoose.Schema.Types.Mixed, default: null },
     stages: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // Phase 10 · rehydration + history projection. Derived at delivery from
+    // events/artifacts the pipeline already produced (never a second source of
+    // truth). Code + prompt stay on Message; only this summary lives here.
+    // timeline: [{ agent, durationMs, steps: [] }] (persona-folded, C3).
+    timeline: { type: mongoose.Schema.Types.Mixed, default: null },
+    // deliver: { componentType, sizeKb, a11y, gates, gatesPassed, title } (C1/C2).
+    deliver: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Flattened for the chat/runs list projection without cracking `deliver`.
+    componentType: { type: String, default: null },
+    sizeKb: { type: Number, default: null },
+    a11y: { type: String, default: null },
+    gatesPassed: { type: Boolean, default: null },
+    title: { type: String, default: null },
   },
   { timestamps: true }
 );

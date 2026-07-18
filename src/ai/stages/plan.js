@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { streamMessage } = require('../anthropic');
 const { sendEvent } = require('../sse');
+const { labelFor } = require('../labels');
 const { developPrompt } = require('./develop');
 const { toUserContent } = require('../../services/assets');
 
@@ -20,7 +21,7 @@ function planPrompt() {
 // the cache stays warm; the plan-only instruction rides the user turn.
 async function run(ctx) {
   const { runId, res, messages, image } = ctx;
-  sendEvent(res, { runId, stage: 'plan', status: 'start', payload: {} });
+  sendEvent(res, { runId, stage: 'plan', status: 'start', payload: { label: labelFor('plan') } });
 
   // Plan reasons from the screenshot when one is attached (region-by-region),
   // so it rides the same user turn as the plan instruction.

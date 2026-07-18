@@ -15,6 +15,9 @@ router.post('/generate/fix', requireAuth, requirePlaygroundAccess, generationCtr
 // already charged at /generate.
 router.post('/generate/resume', requireAuth, requirePlaygroundAccess, generationCtrl.resumeRun);
 router.get('/me', requireAuth, ctrl.getMine);
+// Appearance settings (C4) — authed user only; gates stay always-on.
+router.get('/settings', requireAuth, ctrl.getSettings);
+router.patch('/settings', requireAuth, ctrl.patchSettings);
 router.get('/onboardings', requireAuth, requireAdmin, ctrl.list);
 router.get('/onboardings/count', ctrl.count);
 

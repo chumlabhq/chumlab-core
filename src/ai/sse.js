@@ -1,5 +1,8 @@
 const STAGES = ['router', 'clarify', 'plan', 'develop', 'verify', 'qa', 'deliver'];
-const STATUSES = ['start', 'delta', 'done', 'error', 'needs_input'];
+// `substep` (Phase 10) is a streamed sub-line inside a stage — e.g. one verify
+// edge-case check as it runs. Additive and optional: an old client that doesn't
+// recognise it simply ignores it.
+const STATUSES = ['start', 'delta', 'done', 'error', 'needs_input', 'substep'];
 
 function initSSE(res) {
   res.setHeader('Content-Type', 'text/event-stream');

@@ -33,6 +33,22 @@ function buildStages(result, previous) {
   return stages;
 }
 
+// Phase 10 · fold the pipeline's deliver metadata + timeline onto the run so
+// the runs/chat projection and re-open path read them without recomputing.
+// Code + prompt stay on Message; only this summary lands here.
+function applyRunSummary(run, result) {
+  if (result.timeline) run.timeline = result.timeline;
+  const meta = result.deliverMeta;
+  if (meta) {
+    run.deliver = meta;
+    run.componentType = meta.componentType;
+    run.sizeKb = meta.sizeKb;
+    run.a11y = meta.a11y;
+    run.gatesPassed = meta.gatesPassed;
+    run.title = meta.title;
+  }
+}
+
 exports.health = asyncHandler(async (_req, res) => {
   res.json({ status: 'ok', domain: 'generation' });
 });
@@ -104,6 +120,7 @@ exports.generate = asyncHandler(async (req, res) => {
     run.verifyStatus = result.verifyStatus;
     run.qaVerdict = result.qaVerdict;
     run.stages = buildStages(result);
+    applyRunSummary(run, result);
     await run.save();
 
     // First successful generation moves the user off the waitlist.
@@ -184,6 +201,7 @@ exports.fixRun = asyncHandler(async (req, res) => {
     run.verifyStatus = result.verifyStatus;
     run.qaVerdict = result.qaVerdict;
     run.stages = buildStages(result, run.stages);
+    applyRunSummary(run, result);
     await run.save();
 
     res.end();
@@ -263,6 +281,7 @@ exports.resumeRun = asyncHandler(async (req, res) => {
     run.verifyStatus = result.verifyStatus;
     run.qaVerdict = result.qaVerdict;
     run.stages = buildStages(result, run.stages);
+    applyRunSummary(run, result);
     await run.save();
 
     const onboarding = req.playgroundOnboarding;

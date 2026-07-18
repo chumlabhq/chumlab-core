@@ -8,7 +8,7 @@ const ALLOWED_PACKAGES = new Set([
   'react/jsx-runtime',
   'react-dom',
   'react-dom/client',
-  '@phosphor-icons/react',
+  '@iconify/react',
   'recharts',
   'clsx',
   'tailwind-merge',
@@ -40,7 +40,7 @@ function lint(code) {
     ) {
       errors.push({
         kind: 'lint',
-        message: `"${specifier}" does not exist - icons come from @phosphor-icons/react`,
+        message: `"${specifier}" does not exist - icons come from @iconify/react via <Icon icon="prefix:name" />`,
         loc: locOf(node),
       });
       return;
@@ -62,7 +62,7 @@ function lint(code) {
     if (!ALLOWED_PACKAGES.has(specifier)) {
       errors.push({
         kind: 'lint',
-        message: `"${specifier}" is outside the import allowlist - generated code is a single file importing only @chumlab/ui, react, react-dom, @phosphor-icons/react, recharts, clsx and tailwind-merge`,
+        message: `"${specifier}" is outside the import allowlist - generated code is a single file importing only @chumlab/ui, react, react-dom, @iconify/react, recharts, clsx and tailwind-merge`,
         loc: locOf(node),
       });
     }

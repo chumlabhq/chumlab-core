@@ -1,4 +1,5 @@
 const PlaygroundOnboarding = require('../models/PlaygroundOnboarding');
+const PlaygroundSettings = require('../models/PlaygroundSettings');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -117,4 +118,45 @@ exports.list = asyncHandler(async (req, res) => {
 exports.count = asyncHandler(async (_req, res) => {
   const total = await PlaygroundOnboarding.countDocuments({});
   res.json({ success: true, total });
+});
+
+// Phase 10 · playground appearance settings (C4), scoped to the authed user.
+// Appearance only in v1; gates are always-on and never exposed here.
+const SETTINGS_SHAPE = { ...PlaygroundSettings.DEFAULTS };
+
+function projectSettings(doc) {
+  return {
+    previewTheme: (doc && doc.previewTheme) || SETTINGS_SHAPE.previewTheme,
+    previewDevice: (doc && doc.previewDevice) || SETTINGS_SHAPE.previewDevice,
+  };
+}
+
+exports.getSettings = asyncHandler(async (req, res) => {
+  const doc = await PlaygroundSettings.findOne({ userId: req.user._id });
+  res.json({ success: true, settings: projectSettings(doc) });
+});
+
+exports.patchSettings = asyncHandler(async (req, res) => {
+  const update = {};
+  const { previewTheme, previewDevice } = req.body || {};
+
+  if (previewTheme !== undefined) {
+    if (!PlaygroundSettings.PREVIEW_THEMES.includes(previewTheme)) {
+      throw new ApiError(400, `previewTheme must be one of ${PlaygroundSettings.PREVIEW_THEMES.join(', ')}`);
+    }
+    update.previewTheme = previewTheme;
+  }
+  if (previewDevice !== undefined) {
+    if (!PlaygroundSettings.PREVIEW_DEVICES.includes(previewDevice)) {
+      throw new ApiError(400, `previewDevice must be one of ${PlaygroundSettings.PREVIEW_DEVICES.join(', ')}`);
+    }
+    update.previewDevice = previewDevice;
+  }
+
+  const doc = await PlaygroundSettings.findOneAndUpdate(
+    { userId: req.user._id },
+    { $set: update, $setOnInsert: { userId: req.user._id } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({ success: true, settings: projectSettings(doc) });
 });

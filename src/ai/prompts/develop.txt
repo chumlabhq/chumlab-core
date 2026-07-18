@@ -20,23 +20,40 @@ Import ONLY from:
   `@chumlab/ui/button`, `@chumlab/ui/table`, `@chumlab/ui/date-picker`. The full
   list of valid subpaths is in the reference below.
 - `react`, `react-dom`.
-- Icons: `@phosphor-icons/react` — use `weight="regular"` for outline and
-  `weight="fill"` for solid/filled icons (e.g.
-  `<Heart weight="fill" />`). This is your default icon set.
+- Icons: `@iconify/react` — every icon is `<Icon icon="prefix:name" />`. See §3
+  for how to pick the prefix. This is your only icon source.
 - Charts: `recharts` — for any chart, graph, or data visualization (Chumlab has
   no chart component).
 - `clsx`, `tailwind-merge` (Chumlab's own utilities) if needed.
 
 HARD PROHIBITIONS:
 - `@chumlab/icons` DOES NOT EXIST. Never import it.
+- Never import a raw icon library (`@phosphor-icons/react`, `lucide-react`,
+  `@heroicons/*`, `react-icons`, `devicon`) — every icon comes through
+  `@iconify/react`.
+- Never hand-draw an `<svg>` for an icon.
 - Never invent a `@chumlab/ui` subpath that isn't in the reference.
 - Never import any other UI/component library (no MUI, shadcn, antd, etc.).
 
 ### 3. Icons and user-provided assets
-- Prefer `@phosphor-icons/react`. For an icon that set lacks, write an inline
-  `<svg>` matched to the surrounding size and `currentColor`.
-- If the user provides an SVG asset, INLINE its markup directly into the
-  component (do not import or host it).
+
+## Icons — use Iconify, never hand-draw SVGs
+Render every icon with <Icon icon="prefix:name" /> from "@iconify/react". NEVER output a raw <svg> for an icon, and never import from lucide-react / @heroicons / react-icons / phosphor directly. Every icon is a resolvable Iconify "prefix:name".
+Pick the prefix by role + style:
+- UI icon, at-rest (default, ~90%): lucide:*      e.g. lucide:mail, lucide:search
+- UI icon, SOLID — ONLY for active/selected state, status semantics, an emphasis badge, or ≤16px: heroicons-solid:*   e.g. heroicons-solid:check-circle, heroicons-solid:shield-check
+- Brand/social mark (monochrome): simple-icons:*   e.g. simple-icons:github
+- Brand logo that must keep its colors (OAuth, brand chips): logos:*   Google sign-in → logos:google-icon (multicolor). GitHub → logos:github-icon. Apple → logos:apple.
+- Tech / developer-tool logo (React, AWS, Postgres, Docker…): devicon:*  or  logos:*  (colored)
+Rules:
+- Outline is the default. Use a solid icon ONLY for active state / status / emphasis / ≤16px. Never mix outline and solid for the same icon in one context.
+- Google sign-in MUST use logos:google-icon — never a monochrome Google mark.
+- Size every icon: width/height 16 (inline), 20 (default), or 24 (standalone).
+- Use only icons that exist in Iconify. If unsure a name exists, pick the closest common name. NEVER invent a name and NEVER fall back to drawing an <svg>.
+When a screenshot is provided:
+- For each icon you see, identify its MEANING and STYLE (outline / solid / brand / colored logo). Do NOT trace or recreate the pixels.
+- Map it to the matching Iconify prefix:name using the roles above: magnifying glass → lucide:search · filled bell → heroicons-solid:bell · Google "G" → logos:google-icon · Postgres elephant → devicon:postgresql. If no exact match, choose the closest semantic icon. If unsure of the exact name, emit the concept and let the resolver map it — do not guess-draw.
+
 - If the user provides a raster asset (PNG/JPG/logo) or a screenshot to
   reference, a hosted URL will be given to you — reference it via
   `<img src="THE_URL" alt="..." />`. Use only URLs explicitly provided.

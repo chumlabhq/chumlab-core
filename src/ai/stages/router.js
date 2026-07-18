@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { sendMessage } = require('../anthropic');
 const { sendEvent } = require('../sse');
+const { labelFor } = require('../labels');
 const { toUserContent } = require('../../services/assets');
 
 const TIERS = ['trivial', 'single', 'multi', 'full'];
@@ -20,7 +21,7 @@ function routerPrompt() {
 // routing can never block a generation.
 async function run(ctx) {
   const { runId, res, prompt, hasPriorCode, image } = ctx;
-  sendEvent(res, { runId, stage: 'router', status: 'start', payload: {} });
+  sendEvent(res, { runId, stage: 'router', status: 'start', payload: { label: labelFor('router') } });
 
   let tier = 'single';
   try {

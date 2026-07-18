@@ -14,7 +14,7 @@ const AMBIENT = '/generated/ambient.d.ts';
 // The gate proves the @chumlab/ui and React surfaces; the other allowlisted
 // libraries are any-typed so their full type packages stay out of this repo.
 const AMBIENT_SOURCE = [
-  'declare module "@phosphor-icons/react";',
+  'declare module "@iconify/react";',
   'declare module "recharts";',
   'declare module "clsx";',
   'declare module "tailwind-merge";',

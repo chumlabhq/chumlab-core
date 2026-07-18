@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { sendMessage } = require('../anthropic');
 const { sendEvent } = require('../sse');
+const { labelFor } = require('../labels');
 const { toUserContent } = require('../../services/assets');
 
 const PROMPT_PATH = path.join(__dirname, '..', 'prompts', 'clarify.txt');
@@ -36,7 +37,7 @@ function parseDecision(reply) {
 // must never block a build.
 async function run(ctx) {
   const { runId, res, prompt, image } = ctx;
-  sendEvent(res, { runId, stage: 'clarify', status: 'start', payload: {} });
+  sendEvent(res, { runId, stage: 'clarify', status: 'start', payload: { label: labelFor('clarify') } });
 
   let decision = { questions: [], assumptions: '' };
   try {

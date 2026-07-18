@@ -2,7 +2,32 @@ const fs = require('fs');
 const path = require('path');
 const { sendEvent } = require('./sse');
 const { verify } = require('./verify');
+const { labelFor } = require('./labels');
+const { deliverMeta } = require('./deliver');
 const { toUserContent } = require('../services/assets');
+
+// Phase 10 · timeline recorder. Accumulates per-persona (folded) agent activity
+// as the pipeline runs — router+clarify+plan → "router", develop+auto-fix →
+// "developer", verify → "verifier", qa → "qa" — so it can be persisted on the
+// run (C3) in one write at delivery. Derived from events already emitted; not a
+// second source of truth.
+function createTimeline() {
+  const agents = {};
+  const get = (a) => (agents[a] || (agents[a] = { durationMs: 0, steps: [] }));
+  return {
+    record(agent, durationMs, steps) {
+      const e = get(agent);
+      e.durationMs += Math.max(0, Math.round(durationMs || 0));
+      for (const s of steps || []) if (s) e.steps.push(s);
+    },
+    toArray() {
+      // Stable persona order; only agents that actually ran appear.
+      return ['router', 'developer', 'verifier', 'qa']
+        .filter((a) => agents[a])
+        .map((a) => ({ agent: a, durationMs: agents[a].durationMs, steps: agents[a].steps }));
+    },
+  };
+}
 
 const stages = {
   router: require('./stages/router'),
@@ -98,18 +123,42 @@ async function runPipeline(ctx) {
   // `resumed` - both skip router/clarify (the path was already chosen).
   const image = ctx.image || null;
 
+  const tl = createTimeline();
+
+  // Compute + emit the deliver metadata once, at a code-bearing return. Reads
+  // the current plan/qaVerdict via closure. Best-effort — never throws into the
+  // pipeline (a metadata slip must not fail a delivered build).
+  function finalizeDelivery(code, verifyStatus) {
+    try {
+      const meta = deliverMeta({ code, plan, request, verifyStatus, qaVerdict });
+      sendEvent(res, {
+        runId,
+        stage: 'deliver',
+        status: 'done',
+        payload: { sizeKb: meta.sizeKb, a11y: meta.a11y, gates: meta.gates },
+      });
+      return { timeline: tl.toArray(), deliverMeta: meta };
+    } catch {
+      return { timeline: tl.toArray() };
+    }
+  }
+
   if (roundsUsed === 0 && !ctx.resumed) {
     const lastUser = messages[messages.length - 1];
     const hasPriorCode = messages.some(
       (m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.includes('```tsx')
     );
     // The screenshot informs the tier (a full page routes multi/full).
+    const tRouter = Date.now();
     tier = await stages.router.run({ runId, res, prompt: lastUser.content, hasPriorCode, image });
+    tl.record('router', Date.now() - tRouter, [`Routed to the ${tier} tier`]);
 
     // Clarify only where the answer could change the whole build, and never
     // on a follow-up edit to existing code.
     if ((tier === 'multi' || tier === 'full') && !hasPriorCode) {
+      const tClarify = Date.now();
       const decision = await stages.clarify.run({ runId, res, prompt: lastUser.content, image });
+      tl.record('router', Date.now() - tClarify, []);
       if (decision.questions.length) {
         return {
           status: 'needs_input',
@@ -121,13 +170,16 @@ async function runPipeline(ctx) {
           attempts,
         };
       }
+      tl.record('router', 0, ['Confirmed the approach']);
       assumptions = decision.assumptions;
     }
   }
 
   if (roundsUsed === 0 && (tier === 'multi' || tier === 'full')) {
     const lastUser = messages[messages.length - 1];
+    const tPlan = Date.now();
     plan = await stages.plan.run({ runId, res, messages, image });
+    tl.record('router', Date.now() - tPlan, ['Planned the architecture']);
     const assumptionNote = assumptions
       ? `\n\nKey assumptions to state briefly in your plan: ${assumptions}`
       : '';
@@ -155,7 +207,19 @@ async function runPipeline(ctx) {
   let truncationRetried = false;
 
   for (;;) {
-    const { text, stopReason } = await stages.develop.run({ ...ctx, tier, messages, maxTokens });
+    const tDevelop = Date.now();
+    const { text, stopReason, substeps } = await stages.develop.run({
+      ...ctx,
+      tier,
+      messages,
+      maxTokens,
+      roundsUsed,
+    });
+    tl.record(
+      'developer',
+      Date.now() - tDevelop,
+      roundsUsed === 0 ? substeps || [] : [`Applied fix round ${roundsUsed}`]
+    );
 
     if (stopReason === 'max_tokens') {
       // Truncated mid-file - verifying it would only report the torn-off
@@ -168,15 +232,44 @@ async function runPipeline(ctx) {
       throw new Error('Generation exceeded the output limit - try a narrower request');
     }
 
-    const code = extractCode(text);
+    let code = extractCode(text);
 
     if (!code) {
-      // Prose answer - nothing for the gates to check.
-      return { text, code: null, verifyStatus: null, errors: [], roundsUsed, attempts, tier, plan, truncationRetried };
+      // Prose answer - nothing for the gates to check, so no deliver metadata.
+      return {
+        text,
+        code: null,
+        verifyStatus: null,
+        errors: [],
+        roundsUsed,
+        attempts,
+        tier,
+        plan,
+        truncationRetried,
+        timeline: tl.toArray(),
+      };
     }
 
-    sendEvent(res, { runId, stage: 'verify', status: 'start', payload: { round: roundsUsed } });
-    const result = verify(code);
+    sendEvent(res, {
+      runId,
+      stage: 'verify',
+      status: 'start',
+      payload: { round: roundsUsed, label: labelFor('verify') },
+    });
+    const tVerify = Date.now();
+    const result = await verify(code);
+    // The icon gate may have self-healed an unresolved name; deliver the fix.
+    if (result.repairedCode) code = result.repairedCode;
+    // Stream each gate check as a plain-English substep as it resolves.
+    for (const check of result.checks || []) {
+      sendEvent(res, {
+        runId,
+        stage: 'verify',
+        status: 'substep',
+        payload: { text: check.text, ok: check.ok },
+      });
+    }
+    tl.record('verifier', Date.now() - tVerify, (result.checks || []).map((c) => c.text));
     attempts.push({
       round: roundsUsed,
       ok: result.ok,
@@ -200,7 +293,13 @@ async function runPipeline(ctx) {
       // was asked. Runs on multi/full only, in a separate context, and routes
       // real findings through the SAME bounded fix loop (shared roundsUsed).
       if (tier === 'multi' || tier === 'full') {
-        sendEvent(res, { runId, stage: 'qa', status: 'start', payload: {} });
+        sendEvent(res, {
+          runId,
+          stage: 'qa',
+          status: 'start',
+          payload: { label: labelFor('qa') },
+        });
+        const tQa = Date.now();
         const review = await stages.qa.run({ request, plan, code });
         const actionable = review.findings.filter(
           (f) => f.severity === 'high' || f.severity === 'medium'
@@ -214,6 +313,9 @@ async function runPipeline(ctx) {
               status: 'done',
               payload: { pass: false, exhausted: true, findings: actionable },
             });
+            tl.record('qa', Date.now() - tQa, [
+              `Flagged ${actionable.length} issue${actionable.length === 1 ? '' : 's'} — delivering with warnings`,
+            ]);
             qaVerdict = 'delivered_with_warnings';
             qaFindings = actionable;
           } else {
@@ -225,6 +327,9 @@ async function runPipeline(ctx) {
               status: 'error',
               payload: { fixing: true, round: roundsUsed, findings: actionable },
             });
+            tl.record('qa', Date.now() - tQa, [
+              `Sent ${actionable.length} issue${actionable.length === 1 ? '' : 's'} back to the developer`,
+            ]);
             messages = [
               ...messages,
               { role: 'assistant', content: text },
@@ -234,14 +339,20 @@ async function runPipeline(ctx) {
           }
         } else {
           sendEvent(res, { runId, stage: 'qa', status: 'done', payload: { pass: true, fixed: qaFixed } });
+          tl.record(
+            'qa',
+            Date.now() - tQa,
+            qaFixed ? ['Re-checked after fixes — looks good'] : ['No blocking issues', 'a11y AA passed']
+          );
           qaVerdict = qaFixed ? 'fixed' : 'looks_good';
         }
       }
 
+      const verifyStatus = roundsUsed > 0 ? 'passed_after_fix' : 'passed';
       return {
         text,
         code,
-        verifyStatus: roundsUsed > 0 ? 'passed_after_fix' : 'passed',
+        verifyStatus,
         errors: [],
         roundsUsed,
         attempts,
@@ -250,6 +361,7 @@ async function runPipeline(ctx) {
         truncationRetried,
         qaVerdict,
         qaFindings,
+        ...finalizeDelivery(code, verifyStatus),
       };
     }
 
@@ -270,6 +382,7 @@ async function runPipeline(ctx) {
         tier,
         plan,
         truncationRetried,
+        ...finalizeDelivery(code, 'delivered_with_warnings'),
       };
     }
 

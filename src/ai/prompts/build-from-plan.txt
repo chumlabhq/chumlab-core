@@ -1,0 +1,1 @@
+Build the full file now, following the approved plan below. Work through its subtasks in order within the single file - shell first, then each region, then wiring. The plan was already shown to the user, so skip the <plan> block and output only the single ```tsx code block.

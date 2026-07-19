@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const PlaygroundOnboarding = require('../models/PlaygroundOnboarding');
 const ApiError = require('../utils/ApiError');
 
 const COOKIE_NAME = 'chumlab_token';
@@ -56,10 +57,54 @@ async function requireAuth(req, _res, next) {
   }
 }
 
+function requireAdmin(req, _res, next) {
+  const allowlist = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  if (!req.user || !allowlist.includes(req.user.email)) {
+    return next(new ApiError(403, 'Admin access required'));
+  }
+  next();
+}
+
+// Access is open to every authenticated user by default. Set
+// PLAYGROUND_INVITE_ONLY=true to restore the private-beta invite gate, which
+// admits only accounts with an 'invited' or 'onboarded' onboarding record.
+function playgroundAccessGranted(onboarding) {
+  if (process.env.PLAYGROUND_INVITE_ONLY !== 'true') return true;
+  return !!onboarding && ['invited', 'onboarded'].includes(onboarding.status);
+}
+
+async function requirePlaygroundAccess(req, _res, next) {
+  try {
+    const onboarding = await PlaygroundOnboarding.findOne({ googleSub: req.user.googleSub });
+    if (!playgroundAccessGranted(onboarding)) {
+      throw new ApiError(403, 'Playground access requires an invite', {
+        code: 'not_invited',
+        position: onboarding ? onboarding.position : null,
+        estimatedWait: onboarding
+          ? PlaygroundOnboarding.estimatedWaitFromPosition(onboarding.position)
+          : null,
+      });
+    }
+
+    // Present only when a record exists; downstream promotion off the waitlist
+    // guards on its presence, so open-access users without a record are fine.
+    if (onboarding) req.playgroundOnboarding = onboarding;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   COOKIE_NAME,
   COOKIE_MAX_AGE_MS,
   cookieOptions,
   signToken,
   requireAuth,
+  requireAdmin,
+  requirePlaygroundAccess,
+  playgroundAccessGranted,
 };

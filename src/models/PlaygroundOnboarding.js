@@ -2,6 +2,14 @@ const mongoose = require('mongoose');
 
 const ROLES = ['student', 'developer', 'designer', 'founder', 'company', 'other'];
 const BUDGET_TIERS = ['none', 'low', 'medium', 'high', 'enterprise'];
+const STATUSES = ['waiting', 'invited', 'onboarded', 'rejected'];
+
+function estimatedWaitFromPosition(position) {
+  if (position <= 50) return 'Within 1 week';
+  if (position <= 150) return '1-2 weeks';
+  if (position <= 300) return '2-4 weeks';
+  return '4-6 weeks';
+}
 
 const playgroundOnboardingSchema = new mongoose.Schema(
   {
@@ -23,11 +31,12 @@ const playgroundOnboardingSchema = new mongoose.Schema(
     position: { type: Number, index: true },
     status: {
       type: String,
-      enum: ['waiting', 'invited', 'onboarded', 'rejected'],
+      enum: STATUSES,
       default: 'waiting',
       index: true,
     },
     invitedAt: { type: Date, default: null },
+    onboardedAt: { type: Date, default: null },
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
@@ -37,5 +46,7 @@ const PlaygroundOnboarding = mongoose.model('PlaygroundOnboarding', playgroundOn
 
 PlaygroundOnboarding.ROLES = ROLES;
 PlaygroundOnboarding.BUDGET_TIERS = BUDGET_TIERS;
+PlaygroundOnboarding.STATUSES = STATUSES;
+PlaygroundOnboarding.estimatedWaitFromPosition = estimatedWaitFromPosition;
 
 module.exports = PlaygroundOnboarding;

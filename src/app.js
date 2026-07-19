@@ -14,6 +14,9 @@ const authRoutes = require('./routes/auth.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const feedbackRoutes = require('./routes/feedback.routes');
 const playgroundRoutes = require('./routes/playground.routes');
+const generationRoutes = require('./routes/generation.routes');
+const chatRoutes = require('./routes/chat.routes');
+const adminRoutes = require('./routes/admin.routes');
 
 initPassport();
 
@@ -32,6 +35,10 @@ app.use(
     credentials: true,
   })
 );
+// Generation accepts larger payloads (base64 screenshot on vision turns); the
+// global parser skips bodies this route-scoped one already handled. nginx cap
+// is Phase 10.
+app.use('/api/playground/generate', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -60,6 +67,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api', paymentRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/playground', playgroundRoutes);
+app.use('/api/generation', generationRoutes);
+app.use('/api/chats', chatRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` });

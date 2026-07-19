@@ -1,16 +1,12 @@
 const PlaygroundOnboarding = require('../models/PlaygroundOnboarding');
+const PlaygroundSettings = require('../models/PlaygroundSettings');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { playgroundAccessGranted } = require('../middleware/auth');
 
 const ROLES = PlaygroundOnboarding.ROLES;
 const BUDGET_TIERS = PlaygroundOnboarding.BUDGET_TIERS;
-
-function estimatedWaitFromPosition(position) {
-  if (position <= 50) return 'Within 1 week';
-  if (position <= 150) return '1-2 weeks';
-  if (position <= 300) return '2-4 weeks';
-  return '4-6 weeks';
-}
+const estimatedWaitFromPosition = PlaygroundOnboarding.estimatedWaitFromPosition;
 
 exports.onboard = asyncHandler(async (req, res) => {
   const {
@@ -90,12 +86,16 @@ exports.onboard = asyncHandler(async (req, res) => {
 
 exports.getMine = asyncHandler(async (req, res) => {
   const doc = await PlaygroundOnboarding.findOne({ googleSub: req.user.googleSub });
+  // `access` is the client's gate: true for everyone unless invite-only mode is
+  // on, in which case it tracks the onboarding status.
+  const access = playgroundAccessGranted(doc);
   if (!doc) {
-    return res.json({ success: true, onboarding: null });
+    return res.json({ success: true, onboarding: null, access });
   }
   res.json({
     success: true,
     onboarding: doc,
+    access,
     submittedAt: doc.createdAt.toISOString(),
     position: doc.position,
     estimatedWait: estimatedWaitFromPosition(doc.position),
@@ -123,4 +123,45 @@ exports.list = asyncHandler(async (req, res) => {
 exports.count = asyncHandler(async (_req, res) => {
   const total = await PlaygroundOnboarding.countDocuments({});
   res.json({ success: true, total });
+});
+
+// Phase 10 · playground appearance settings (C4), scoped to the authed user.
+// Appearance only in v1; gates are always-on and never exposed here.
+const SETTINGS_SHAPE = { ...PlaygroundSettings.DEFAULTS };
+
+function projectSettings(doc) {
+  return {
+    previewTheme: (doc && doc.previewTheme) || SETTINGS_SHAPE.previewTheme,
+    previewDevice: (doc && doc.previewDevice) || SETTINGS_SHAPE.previewDevice,
+  };
+}
+
+exports.getSettings = asyncHandler(async (req, res) => {
+  const doc = await PlaygroundSettings.findOne({ userId: req.user._id });
+  res.json({ success: true, settings: projectSettings(doc) });
+});
+
+exports.patchSettings = asyncHandler(async (req, res) => {
+  const update = {};
+  const { previewTheme, previewDevice } = req.body || {};
+
+  if (previewTheme !== undefined) {
+    if (!PlaygroundSettings.PREVIEW_THEMES.includes(previewTheme)) {
+      throw new ApiError(400, `previewTheme must be one of ${PlaygroundSettings.PREVIEW_THEMES.join(', ')}`);
+    }
+    update.previewTheme = previewTheme;
+  }
+  if (previewDevice !== undefined) {
+    if (!PlaygroundSettings.PREVIEW_DEVICES.includes(previewDevice)) {
+      throw new ApiError(400, `previewDevice must be one of ${PlaygroundSettings.PREVIEW_DEVICES.join(', ')}`);
+    }
+    update.previewDevice = previewDevice;
+  }
+
+  const doc = await PlaygroundSettings.findOneAndUpdate(
+    { userId: req.user._id },
+    { $set: update, $setOnInsert: { userId: req.user._id } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({ success: true, settings: projectSettings(doc) });
 });

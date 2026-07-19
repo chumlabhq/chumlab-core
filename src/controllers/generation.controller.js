@@ -16,9 +16,26 @@ const {
 // "build the main section anyway" — a soft guide, not a gate.
 const PAGE_SCOPE_CAVEAT = 'Building the main section — it may not capture the full page.';
 const { normalizeImage } = require('../services/assets');
+const { classifyFollowup } = require('../ai/classifyFollowup');
 
 const PROMPT_MAX_LENGTH = 4000;
 const HISTORY_LIMIT = 20;
+
+// The refine path's current component: the most recent assistant turn carrying a
+// ```tsx fence (the same convention the orchestrator uses to detect prior code).
+// Returns the fenced code, or null when the chat has no component to refine yet.
+function latestCodeFrom(history) {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m.role !== 'assistant' || typeof m.content !== 'string') continue;
+    const start = m.content.indexOf('```tsx');
+    if (start === -1) continue;
+    const body = m.content.slice(start + 6).replace(/^\n/, '');
+    const end = body.indexOf('```');
+    return end === -1 ? body.trim() : body.slice(0, end).trim();
+  }
+  return null;
+}
 
 function buildStages(result, previous) {
   const stages = {
@@ -92,6 +109,31 @@ exports.generate = asyncHandler(async (req, res) => {
     status: 'running',
   });
   await Message.create({ chatId: chat._id, role: 'user', content: effectivePrompt, image });
+
+  // Refine-path intent guard (additive, fail-safe). Runs only when the chat
+  // already has a component: a confident no-op or question is answered in-chat
+  // with no rebuild. Any error, timeout, or ambiguity resolves to 'edit' and the
+  // pipeline below runs exactly as today. Fresh builds have no prior code and
+  // skip this entirely, so their latency is unchanged.
+  const priorCode = latestCodeFrom(history);
+  if (priorCode) {
+    const { intent, message } = await classifyFollowup(priorCode, effectivePrompt);
+    if ((intent === 'noop' || intent === 'question') && message) {
+      initSSE(res);
+      sendEvent(res, {
+        runId: String(run._id),
+        stage: 'router',
+        status: 'done',
+        payload: { outcome: 'answer', message },
+      });
+      await Message.create({ chatId: chat._id, role: 'assistant', content: message });
+      await Chat.updateOne({ _id: chat._id }, { $currentDate: { updatedAt: true } });
+      run.status = 'done';
+      await run.save();
+      res.end();
+      return;
+    }
+  }
 
   initSSE(res);
   const runId = String(run._id);

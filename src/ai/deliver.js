@@ -25,16 +25,24 @@ function sizeKbOf(code) {
   return Math.round((bytes / 1024) * 10) / 10;
 }
 
-// Per-gate booleans for the cluster. lint/types come from verify; render is the
-// client-side gate — optimistically true when verify passed (the browser
-// confirms it live and re-enters through /fix if it doesn't); qa reflects the
-// critic verdict (null verdict = QA didn't run on this tier, treated as pass).
+// Per-gate booleans for the cluster. lint/types/responsive/safety are the
+// blocking verify gates; render is the client-side gate — optimistically true
+// when verify passed (the browser confirms it live and re-enters through /fix if
+// it doesn't); qa reflects the critic verdict (null verdict = QA didn't run on
+// this tier, treated as pass).
 function gatesFrom(verifyStatus, qaVerdict) {
   const verifyPassed =
     verifyStatus === 'passed' || verifyStatus === 'passed_after_fix';
   const qaPassed =
     qaVerdict == null || qaVerdict === 'looks_good' || qaVerdict === 'fixed';
-  return { lint: verifyPassed, types: verifyPassed, render: verifyPassed, qa: qaPassed };
+  return {
+    lint: verifyPassed,
+    types: verifyPassed,
+    render: verifyPassed,
+    responsive: verifyPassed,
+    safety: verifyPassed,
+    qa: qaPassed,
+  };
 }
 
 // First ~6 words of the request, else the component name. Title for the row.
@@ -51,7 +59,13 @@ function titleFrom(request, componentType) {
 function deliverMeta({ code, plan, request, verifyStatus, qaVerdict }) {
   const componentType = classifyComponent(code, plan);
   const gates = gatesFrom(verifyStatus, qaVerdict);
-  const gatesPassed = gates.lint && gates.types && gates.render && gates.qa;
+  const gatesPassed =
+    gates.lint &&
+    gates.types &&
+    gates.render &&
+    gates.responsive &&
+    gates.safety &&
+    gates.qa;
   return {
     componentType,
     sizeKb: sizeKbOf(code),

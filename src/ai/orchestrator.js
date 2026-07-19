@@ -31,7 +31,6 @@ function createTimeline() {
 
 const stages = {
   router: require('./stages/router'),
-  clarify: require('./stages/clarify'),
   plan: require('./stages/plan'),
   develop: require('./stages/develop'),
   qa: require('./stages/qa'),

@@ -95,7 +95,10 @@ test('OTP golden: labeled starts, verify substeps, 4-entry timeline, deliver met
   assert.ok(deliver, 'deliver.done emitted');
   assert.equal(typeof deliver.payload.sizeKb, 'number');
   assert.equal(deliver.payload.a11y, 'AA');
-  assert.deepEqual(Object.keys(deliver.payload.gates).sort(), ['lint', 'qa', 'render', 'types']);
+  assert.deepEqual(
+    Object.keys(deliver.payload.gates).sort(),
+    ['lint', 'qa', 'render', 'responsive', 'safety', 'types']
+  );
 
   // Gates ran regardless of any settings (guarantee): verify + qa both executed.
   assert.ok(verifyCalls >= 1, 'the verify gate ran');

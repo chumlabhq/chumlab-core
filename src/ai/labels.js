@@ -7,7 +7,6 @@
 // Router plans, Developer writes, Verifier tests edge cases, QA runs the gates.
 const STAGE_LABELS = {
   router: 'Understanding your request',
-  clarify: 'Checking what needs clarifying',
   plan: 'Planning the build',
   develop: 'Writing the component',
   verify: 'Testing edge cases',

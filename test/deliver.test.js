@@ -28,18 +28,18 @@ test('sizeKbOf is a positive gzipped KB for real code, 0 for empty', () => {
 
 test('gatesFrom maps verify/qa outcomes to per-gate booleans', () => {
   assert.deepEqual(gatesFrom('passed', 'looks_good'), {
-    lint: true, types: true, render: true, qa: true,
+    lint: true, types: true, render: true, responsive: true, safety: true, qa: true,
   });
   assert.deepEqual(gatesFrom('passed_after_fix', 'fixed'), {
-    lint: true, types: true, render: true, qa: true,
+    lint: true, types: true, render: true, responsive: true, safety: true, qa: true,
   });
   // QA didn't run (null verdict, e.g. single-tier) → treated as passed.
   assert.deepEqual(gatesFrom('passed', null), {
-    lint: true, types: true, render: true, qa: true,
+    lint: true, types: true, render: true, responsive: true, safety: true, qa: true,
   });
   // Verify exhausted → every verify-derived gate fails.
   assert.deepEqual(gatesFrom('delivered_with_warnings', 'looks_good'), {
-    lint: false, types: false, render: false, qa: true,
+    lint: false, types: false, render: false, responsive: false, safety: false, qa: true,
   });
   // QA flagged issues it couldn't fix.
   assert.equal(gatesFrom('passed', 'delivered_with_warnings').qa, false);
@@ -65,7 +65,10 @@ test('deliverMeta returns every C2 projection field', () => {
   assert.equal(meta.a11y, 'AA');
   assert.equal(meta.gatesPassed, true);
   assert.equal(typeof meta.title, 'string');
-  assert.deepEqual(Object.keys(meta.gates).sort(), ['lint', 'qa', 'render', 'types']);
+  assert.deepEqual(
+    Object.keys(meta.gates).sort(),
+    ['lint', 'qa', 'render', 'responsive', 'safety', 'types']
+  );
 });
 
 test('deliverMeta drops the a11y badge when a gate fails', () => {

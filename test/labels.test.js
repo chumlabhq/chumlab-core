@@ -3,8 +3,10 @@ const assert = require('node:assert');
 
 const { STAGE_LABELS, labelFor } = require('../src/ai/labels');
 
-test('every pipeline stage has a human-readable label', () => {
-  for (const stage of ['router', 'clarify', 'plan', 'develop', 'verify', 'qa', 'deliver']) {
+test('every running stage has a human-readable label', () => {
+  // 'clarify' is intentionally absent: it's a needs_input pause, not a running
+  // stage with a streamed label line (the client shows "Waiting for you").
+  for (const stage of ['router', 'plan', 'develop', 'verify', 'qa', 'deliver']) {
     const label = labelFor(stage);
     assert.equal(typeof label, 'string');
     assert.ok(label.length > 0, `${stage} label is non-empty`);
@@ -12,7 +14,8 @@ test('every pipeline stage has a human-readable label', () => {
   }
 });
 
-test('labelFor returns null for an unknown stage (never throws)', () => {
+test('labelFor returns null for a non-labeled or unknown stage (never throws)', () => {
+  assert.equal(labelFor('clarify'), null);
   assert.equal(labelFor('nope'), null);
   assert.equal(labelFor(undefined), null);
 });

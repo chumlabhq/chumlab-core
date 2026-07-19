@@ -5,9 +5,9 @@ const { staticResponsiveCheck } = require('./checks/responsive');
 const { checkSafety } = require('./checks/safety');
 
 // Cheapest first: a lint failure already forces a regeneration, so the
-// typecheck is skipped. This is what the Phase 4 orchestrator calls after
-// Develop. Async because the icon gate self-heals an unresolved name via the
-// Iconify resolver before failing (its only network touch).
+// typecheck is skipped. The orchestrator calls this after Develop. Async because
+// the icon gate self-heals an unresolved name via the Iconify resolver before
+// failing (its only network touch).
 async function verify(code) {
   // `checks` are the plain-English lines the agent panel streams as verify
   // substeps (Phase 10, A1) — one per gate as it runs, each with `ok`.

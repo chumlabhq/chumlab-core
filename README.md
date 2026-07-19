@@ -1,237 +1,131 @@
 # chumlab-be
 
-Node.js + Express + MongoDB backend for [chumlab](https://chumlab.com).
-Powers the chumlab-fe frontend.
+Backend for the [Chumlab](https://chumlab.com) platform — the marketing site,
+the `@chumlab/ui` docs, and the **AI Playground** that turns a prompt or a
+screenshot into production React built with `@chumlab/ui`.
 
-- **Razorpay Standard Checkout** (create order + verify signature + webhook)
-- **Feedback** API (matches `BuyMeCoffee.tsx` payload)
-- **AI Playground onboarding** API with Google OAuth verification
-  (matches `PlaygroundOnboarding.tsx` + `mockApi.ts`)
+Node.js + Express + MongoDB. Authentication is a Google OAuth server-side flow
+that issues an HTTP-only session cookie. The Playground runs a staged codegen
+pipeline whose output is proven against the real component library by
+deterministic verify gates before it is delivered.
 
 ## Stack
 
-- Node.js >= 18
-- Express 4 + Mongoose 8
-- Razorpay Node SDK
-- google-auth-library (Google OAuth ID-token verification)
+- Node.js >= 18, Express 4, Mongoose 8
+- Passport (Google OAuth 2.0) + JWT session cookie (`chumlab_token`)
+- Anthropic SDK (staged generation pipeline)
 - Helmet, CORS, Morgan, express-rate-limit
+- Razorpay Node SDK (payments)
 
 ## Quick start
 
 ```bash
-cd /Users/adityaagarwal/Developer/chumlab-be
 npm install
-npm run dev    # http://localhost:5000 (nodemon)
+cp .env.example .env      # then fill in the values (see Environment)
+npm run dev               # nodemon, http://localhost:5000 (PORT is configurable)
 # or
 npm start
 ```
 
-Demo Razorpay checkout: `http://localhost:5000/public/checkout.html`
-
 ## Environment
 
-`.env`:
+All configuration is via environment variables. Copy `.env.example` to `.env`
+and fill it in — **never commit a real `.env`** (it is git-ignored). The table
+below lists what each value is for; `.env.example` has the full, placeholder-only
+template.
 
-```
-PORT=5000
-MONGODB_URI=mongodb+srv://...
+### Required
 
-RAZORPAY_KEY_ID=rzp_test_...
-RAZORPAY_KEY_SECRET=...
+| Variable | Purpose |
+| --- | --- |
+| `MONGODB_URI` | MongoDB connection string |
+| `JWT_SECRET` | signs the `chumlab_token` session cookie (use a long random string) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 web client |
+| `GOOGLE_CALLBACK_URL` | `{api-origin}/api/auth/google/callback` (must match the Cloud Console redirect URI) |
+| `FRONTEND_URL` | SPA origin, used for post-login redirects |
+| `CORS_ORIGIN` | comma-separated allowed origins (exact, no trailing slash — `credentials: include` requires explicit origins) |
+| `ANTHROPIC_API_KEY` | Anthropic API key for the generation pipeline |
+| `ADMIN_EMAILS` | comma-separated admin emails |
 
-GOOGLE_CLIENT_ID=xxxxxx-xxxx.apps.googleusercontent.com
-GOOGLE_OAUTH_VERIFY=true        # set to "false" only in local dev to skip verification
+### Playground access & quotas (safe defaults — override only to tune)
 
-CORS_ORIGIN=*
-RAZORPAY_WEBHOOK_SECRET=optional
-```
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PLAYGROUND_INVITE_ONLY` | *(off — open access)* | set `true` to require an invite record instead of allowing every signed-in user |
+| `PLAYGROUND_DAILY_LIMIT` | `20` | generations per user per UTC day |
+| `PLAYGROUND_GLOBAL_DAILY_LIMIT` | `150` | generations across all users per UTC day (spend backstop — raise for production traffic) |
+| `PLAYGROUND_BURST_PER_MINUTE` | `10` | per-user short-term throttle |
 
-`KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` are server-only; the `key_id` is
-returned in the body of `POST /api/create-order` so the frontend can pass it
-to the Razorpay modal.
+### Optional model / runtime tuning (defaults are sensible)
 
-## API
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5` | main generation model |
+| `ANTHROPIC_ROUTER_MODEL` / `ANTHROPIC_CLASSIFY_MODEL` | `claude-haiku-4-5` | small fast models for routing / follow-up classification |
+| `ANTHROPIC_MAX_OUTPUT_TOKENS` | `64000` | ceiling for the tier-scaled output budget |
+| `ANTHROPIC_TIMEOUT_MS` | `90000` | per-call LLM timeout (a hung call fails cleanly) |
+| `CHUMLAB_UI_DIR` | *(auto)* | path to the `@chumlab/ui` type definitions the type gate checks against |
+| `NODE_ENV`, `PORT`, `APP_URL` | — | standard runtime settings |
 
-### Health
+Razorpay (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`)
+is only needed if payments are enabled.
 
-| Method | Path          |
-| ------ | ------------- |
-| GET    | `/api/health` |
-| GET    | `/`           |
+## API overview
 
-### Razorpay
+All routes are mounted under `/api`. Playground endpoints require the session
+cookie (`requireAuth`); generation additionally enforces access + quota.
 
-| Method | Path                       | Description                                |
-| ------ | -------------------------- | ------------------------------------------ |
-| POST   | `/api/create-order`        | Create order (`amount` in paise, min 100)  |
-| POST   | `/api/verify-payment`      | HMAC-SHA256 signature verify               |
-| GET    | `/api/orders/:id`          | Fetch saved order by Razorpay order id     |
-| POST   | `/api/razorpay/webhook`    | Webhook receiver (needs webhook secret)    |
+| Area | Base | Notes |
+| --- | --- | --- |
+| Auth | `/api/auth` | Google OAuth login/callback, `me`, `logout` |
+| Chats | `/api/chats` | chat CRUD + messages |
+| Generation | `/api/generation` | run history + a run by id |
+| Playground | `/api/playground` | `generate` (SSE), `generate/fix`, `generate/resume`, `settings`, `me` |
+| Feedback | `/api/feedback` | submit / list feedback |
+| Payments | `/api` | Razorpay create-order / verify / webhook |
+| Admin | `/api/admin` | admin-only, gated by `ADMIN_EMAILS` |
+| Health | `/api/health`, `/` | liveness |
 
-### Feedback (matches `BuyMeCoffee.tsx`)
+The generation stream (`POST /api/playground/generate`) is Server-Sent Events:
+the pipeline emits `{ runId, stage, status, payload }` envelopes as it routes,
+plans, develops, verifies, reviews, and delivers.
 
-```http
-POST /api/feedback
-Content-Type: application/json
+## Scripts
 
-{
-  "rating": 5,                         // 0-5, optional
-  "feedback": "Love the components!",  // string, max 500, optional
-  "amount": 15,                        // USD, required, min 5
-  "currency": "USD",                   // default "USD"
-  "selected": 1,                       // chip index from UI, optional
-  "user": { "name": "...", "email": "..." }   // optional
-}
-```
+| Script | What it does |
+| --- | --- |
+| `npm run dev` | nodemon dev server |
+| `npm start` | production server |
+| `npm test` | Node's built-in test runner (`node --test`) |
+| `npm run build:prompt` | assemble the develop-stage system prompt |
 
-| Method | Path                | Description       |
-| ------ | ------------------- | ----------------- |
-| POST   | `/api/feedback`     | Submit            |
-| GET    | `/api/feedback`     | List (paginated)  |
-| GET    | `/api/feedback/:id` | Get one           |
+## Deployment notes
 
-### Playground onboarding (matches `PlaygroundOnboarding.tsx`)
+1. Create a Google OAuth 2.0 web client and add your production origin to
+   **Authorized JavaScript origins** and `{api-origin}/api/auth/google/callback`
+   to **Authorized redirect URIs**.
+2. Set `CORS_ORIGIN` to your real frontend origin(s) and serve over HTTPS.
+3. Whitelist the deploy environment's IPs for MongoDB Atlas.
+4. Raise `PLAYGROUND_GLOBAL_DAILY_LIMIT` to match expected traffic, and set
+   `ANTHROPIC_API_KEY` — every generation calls the Anthropic API.
 
-#### Step 1 — Google sign-in (replaces `mockSignInWithGoogle`)
-
-```http
-POST /api/playground/auth/google
-Content-Type: application/json
-
-{
-  "credential": "<Google ID token from @react-oauth/google>"
-}
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "user": {
-    "sub": "112233...",
-    "name": "Aditya Sharma",
-    "email": "aditya@gmail.com",
-    "picture": "https://...",
-    "initials": "AS"
-  }
-}
-```
-
-#### Step 2 — Submit onboarding (replaces `mockSubmitOnboarding`)
-
-```http
-POST /api/playground/onboard
-Content-Type: application/json
-
-{
-  "credential": "<Google ID token>",      // re-verified server-side
-  "role": "student | developer | designer | founder | company | other",
-  "context": "full-time",
-  "contextLabel": "Full-time founder",
-  "budgetTier": "none | low | medium | high | enterprise",
-  "budgetLabel": "$10 - $25 / mo",
-  "organization": "Acme Inc",             // optional
-  "phone": "+919999999999",               // optional, E.164
-  "requirements": "Need API access ..."   // optional, max 500
-}
-```
-
-Response (matches the mock `OnboardingResult` shape exactly):
-
-```json
-{
-  "success": true,
-  "alreadyOnboarded": false,
-  "submittedAt": "2026-04-25T03:48:34.701Z",
-  "position": 1,
-  "estimatedWait": "Within 1 week",
-  "submission": { ... }
-}
-```
-
-A repeat submission with the same Google identity returns
-`alreadyOnboarded: true` with the original `submittedAt`/`position` —
-matching the spirit of a waitlist that doesn't double-count.
-
-#### Read
-
-| Method | Path                                | Description                |
-| ------ | ----------------------------------- | -------------------------- |
-| GET    | `/api/playground/onboardings`       | List (paginated, ordered)  |
-| GET    | `/api/playground/onboardings/count` | Total signups              |
-
-## Frontend wiring (chumlab-fe)
-
-### Replace `mockSignInWithGoogle` in `src/pages/playground/mockApi.ts`
-
-Install `@react-oauth/google` in the frontend, wrap the app with
-`<GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>`,
-then in the onboarding step 1 use the `credential` returned by `<GoogleLogin />`:
-
-```ts
-// frontend
-const res = await fetch(`${API_BASE}/api/playground/auth/google`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ credential }),
-});
-const { user } = await res.json();
-// user => { sub, name, email, picture, initials }
-```
-
-### Replace `mockSubmitOnboarding`
-
-Pass the same `credential` along with the form fields:
-
-```ts
-const res = await fetch(`${API_BASE}/api/playground/onboard`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ credential, ...submission }),
-});
-const { submittedAt, position, estimatedWait } = await res.json();
-```
-
-### BuyMeCoffee `handleSubmit`
-
-```ts
-await fetch(`${API_BASE}/api/feedback`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ rating, feedback, amount, selected }),
-});
-```
-
-## Manual steps
-
-1. Create a Google OAuth 2.0 Web Client ID
-   ([console.cloud.google.com](https://console.cloud.google.com/apis/credentials))
-   and add `http://localhost:5173` (Vite default) and your production origin to
-   **Authorized JavaScript origins**. Put the client id in:
-   - backend `.env` -> `GOOGLE_CLIENT_ID`
-   - frontend `.env` -> `VITE_GOOGLE_CLIENT_ID`
-2. Whitelist the Mongo Atlas access for the deploy environment.
-3. For production set `CORS_ORIGIN` to your real frontend domain(s) and put the
-   service behind HTTPS.
-4. (Optional) Configure a Razorpay webhook URL pointing at
-   `/api/razorpay/webhook` and copy the secret into `RAZORPAY_WEBHOOK_SECRET`.
-
-## File layout
+## Project layout
 
 ```
 chumlab-be/
   server.js
-  package.json
-  .env / .env.example
-  public/checkout.html
   src/
     app.js
-    config/{db.js, razorpay.js, google.js}
-    middleware/errorHandler.js
-    models/{Order, Feedback, PlaygroundOnboarding, User}.js
-    controllers/{auth, payment, feedback, playground}.controller.js
-    routes/{auth, payment, feedback, playground}.routes.js
-    utils/{asyncHandler, ApiError}.js
+    ai/            staged codegen pipeline (router, plan, develop, verify, qa, deliver)
+    config/        db, passport / google, anthropic
+    controllers/   thin asyncHandler controllers
+    middleware/    auth, quota, error handling
+    models/        Mongoose models
+    routes/        route wiring
+    utils/         asyncHandler, ApiError
+  test/            node --test suites
 ```
-# chumlab-core
+
+## License
+
+© Chumlab · [hello@chumlab.com](mailto:hello@chumlab.com)

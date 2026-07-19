@@ -2,6 +2,7 @@ const PlaygroundOnboarding = require('../models/PlaygroundOnboarding');
 const PlaygroundSettings = require('../models/PlaygroundSettings');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { playgroundAccessGranted } = require('../middleware/auth');
 
 const ROLES = PlaygroundOnboarding.ROLES;
 const BUDGET_TIERS = PlaygroundOnboarding.BUDGET_TIERS;
@@ -85,12 +86,16 @@ exports.onboard = asyncHandler(async (req, res) => {
 
 exports.getMine = asyncHandler(async (req, res) => {
   const doc = await PlaygroundOnboarding.findOne({ googleSub: req.user.googleSub });
+  // `access` is the client's gate: true for everyone unless invite-only mode is
+  // on, in which case it tracks the onboarding status.
+  const access = playgroundAccessGranted(doc);
   if (!doc) {
-    return res.json({ success: true, onboarding: null });
+    return res.json({ success: true, onboarding: null, access });
   }
   res.json({
     success: true,
     onboarding: doc,
+    access,
     submittedAt: doc.createdAt.toISOString(),
     position: doc.position,
     estimatedWait: estimatedWaitFromPosition(doc.position),

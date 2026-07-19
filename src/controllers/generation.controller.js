@@ -17,6 +17,7 @@ const {
 const PAGE_SCOPE_CAVEAT = 'Building the main section — it may not capture the full page.';
 const { normalizeImage } = require('../services/assets');
 const { classifyFollowup } = require('../ai/classifyFollowup');
+const { chargeGeneration } = require('../middleware/quota');
 
 const PROMPT_MAX_LENGTH = 4000;
 const HISTORY_LIMIT = 20;
@@ -133,6 +134,18 @@ exports.generate = asyncHandler(async (req, res) => {
       res.end();
       return;
     }
+  }
+
+  // Commit to a build: atomically charge the per-user + global daily caps. A
+  // no-op/question answer already returned above (free); a refine that reaches
+  // here is a real build and counts. Over either cap → 429 before any build
+  // starts. The user's turn stays in the thread (the client shows a "limit
+  // reached" notice beside it); only the empty run is unwound.
+  try {
+    await chargeGeneration(req.user._id);
+  } catch (err) {
+    await run.deleteOne().catch(() => {});
+    throw err;
   }
 
   initSSE(res);

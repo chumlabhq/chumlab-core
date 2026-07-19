@@ -68,10 +68,18 @@ function requireAdmin(req, _res, next) {
   next();
 }
 
+// Access is open to every authenticated user by default. Set
+// PLAYGROUND_INVITE_ONLY=true to restore the private-beta invite gate, which
+// admits only accounts with an 'invited' or 'onboarded' onboarding record.
+function playgroundAccessGranted(onboarding) {
+  if (process.env.PLAYGROUND_INVITE_ONLY !== 'true') return true;
+  return !!onboarding && ['invited', 'onboarded'].includes(onboarding.status);
+}
+
 async function requirePlaygroundAccess(req, _res, next) {
   try {
     const onboarding = await PlaygroundOnboarding.findOne({ googleSub: req.user.googleSub });
-    if (!onboarding || !['invited', 'onboarded'].includes(onboarding.status)) {
+    if (!playgroundAccessGranted(onboarding)) {
       throw new ApiError(403, 'Playground access requires an invite', {
         code: 'not_invited',
         position: onboarding ? onboarding.position : null,
@@ -81,7 +89,9 @@ async function requirePlaygroundAccess(req, _res, next) {
       });
     }
 
-    req.playgroundOnboarding = onboarding;
+    // Present only when a record exists; downstream promotion off the waitlist
+    // guards on its presence, so open-access users without a record are fine.
+    if (onboarding) req.playgroundOnboarding = onboarding;
     next();
   } catch (err) {
     next(err);
@@ -96,4 +106,5 @@ module.exports = {
   requireAuth,
   requireAdmin,
   requirePlaygroundAccess,
+  playgroundAccessGranted,
 };

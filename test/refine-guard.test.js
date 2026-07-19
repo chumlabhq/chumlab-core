@@ -38,6 +38,10 @@ anthropic.sendMessage = async (...args) => {
 const generationCtrl = require('../src/controllers/generation.controller');
 const Chat = require('../src/models/Chat');
 const Message = require('../src/models/Message');
+const PipelineRun = require('../src/models/PipelineRun');
+const UsageCounter = require('../src/models/UsageCounter');
+const GlobalUsageCounter = require('../src/models/GlobalUsageCounter');
+const { utcDateKey } = require('../src/middleware/quota');
 
 let mongod;
 
@@ -57,6 +61,10 @@ beforeEach(() => {
 });
 
 const newId = () => new mongoose.Types.ObjectId();
+
+const dateKey = utcDateKey();
+const userCount = async (uid) => (await UsageCounter.findOne({ userId: uid, dateKey }))?.count ?? 0;
+const globalCount = async () => (await GlobalUsageCounter.findOne({ dateKey }))?.count ?? 0;
 
 // Drive an SSE controller directly: capture the emitted events and resolve when
 // the handler ends the stream (or rejects if it funnels an error to next).
@@ -114,20 +122,24 @@ test('refine edit → pipeline runs, no answer turn', async () => {
   assert.equal(classifierInvoked, true, 'classifier runs on the refine path');
   assert.equal(pipelineCalls, 1, 'the full pipeline runs for a real edit');
   assert.ok(!res.events.some((e) => e.payload && e.payload.outcome === 'answer'));
+  assert.equal(await userCount(uid), 1, 'a refine edit charges quota');
 });
 
 test('genuine no-op → answer turn, no rebuild', async () => {
   const uid = newId();
   const chat = await seedChatWithComponent(uid);
-  const reply = 'The middle tier is already highlighted — accent border + Popular badge.';
+  const reply = 'The middle tier is already highlighted, with the accent border and the Popular badge.';
   sendMessageImpl = async () => JSON.stringify({ intent: 'noop', message: reply });
 
+  const g0 = await globalCount();
   const res = await invokeSSE(generationCtrl.generate, req(uid, {
     chatId: String(chat._id),
     prompt: 'highlight the middle tier',
   }));
 
   assert.equal(pipelineCalls, 0, 'no rebuild for a no-op');
+  assert.equal(await userCount(uid), 0, 'a no-op answer does not charge the user');
+  assert.equal(await globalCount(), g0, 'a no-op answer does not touch the global counter');
   const answer = res.events.find((e) => e.payload && e.payload.outcome === 'answer');
   assert.ok(answer, 'an answer router event is emitted');
   assert.equal(answer.stage, 'router');
@@ -153,6 +165,7 @@ test('question → answer turn, no rebuild', async () => {
 
   assert.equal(pipelineCalls, 0, 'no rebuild for a question');
   assert.ok(res.events.some((e) => e.payload && e.payload.outcome === 'answer'));
+  assert.equal(await userCount(uid), 0, 'a question answer does not charge the user');
 });
 
 test('ambiguous classification → edit → pipeline runs', async () => {
@@ -196,4 +209,24 @@ test('fresh build (no prior code) never invokes the classifier', async () => {
   assert.equal(classifierInvoked, false, 'first build skips the guard entirely');
   assert.equal(pipelineCalls, 1, 'the pipeline runs as today');
   assert.ok(!res.events.some((e) => e.payload && e.payload.outcome === 'answer'));
+  assert.equal(await userCount(uid), 1, 'a fresh build charges quota');
+});
+
+test('fix-loop (fixRun) never charges quota', async () => {
+  const uid = newId();
+  const chat = await Chat.create({ userId: uid, title: 'Pricing card' });
+  const run = await PipelineRun.create({ userId: uid, chatId: chat._id, status: 'done', fixRounds: 0 });
+  await Message.create({ chatId: chat._id, role: 'user', content: 'build a pricing card' });
+  await Message.create({
+    chatId: chat._id,
+    role: 'assistant',
+    content: '```tsx\nexport default () => null;\n```',
+  });
+
+  await invokeSSE(generationCtrl.fixRun, req(uid, {
+    runId: String(run._id),
+    error: { kind: 'render', message: 'ReferenceError at line 1' },
+  }));
+
+  assert.equal(await userCount(uid), 0, 'a render fix is not a new billable generation');
 });

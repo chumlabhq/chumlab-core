@@ -1,6 +1,8 @@
 const { lint } = require('./lint');
 const { typecheck } = require('./typecheck');
 const { checkIcons, repairIcons } = require('./icons');
+const { staticResponsiveCheck } = require('./checks/responsive');
+const { checkSafety } = require('./checks/safety');
 
 // Cheapest first: a lint failure already forces a regeneration, so the
 // typecheck is skipped. This is what the Phase 4 orchestrator calls after
@@ -49,9 +51,27 @@ async function verify(code) {
       : 'Type-checks against @chumlab/ui',
     ok: typeResult.ok,
   });
+
+  // Responsive gate — static layer. Hard pixel widths that can't fit mobile
+  // fail here (blocking); the live 360/1024 render check is the client-side
+  // source of truth and reports overflow back through the render-fix loop.
+  const respFailures = staticResponsiveCheck(effectiveCode);
+  const respOk = respFailures.length === 0;
+  checks.push({ text: 'Mobile-responsive (no fixed pixel widths)', ok: respOk });
+
+  // Content-safety gate (Track C) — blocking backstop to the Router's intent
+  // screen. Hate/harassment content or brand-impersonation phishing fails here.
+  const safetyFailures = checkSafety(effectiveCode);
+  const safetyOk = safetyFailures.length === 0;
+  checks.push({ text: 'Content policy', ok: safetyOk });
+
   const result = {
-    ok: typeResult.ok,
-    errors: typeResult.errors,
+    ok: typeResult.ok && respOk && safetyOk,
+    errors: [
+      ...typeResult.errors,
+      ...respFailures.map((message) => ({ kind: 'responsive', message })),
+      ...safetyFailures.map((message) => ({ kind: 'safety', message })),
+    ],
     checks,
     ...(repaired ? { repairedCode: repaired } : {}),
   };

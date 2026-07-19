@@ -45,7 +45,7 @@ test('settings GET returns defaults, PATCH round-trips and persists', async () =
   const uid = newId();
 
   const g1 = await invoke(playgroundCtrl.getSettings, { user: { _id: uid } });
-  assert.deepEqual(g1.body.settings, { previewTheme: 'light', previewDevice: 'mobile' });
+  assert.deepEqual(g1.body.settings, { previewTheme: 'light', previewDevice: 'fill' });
 
   const patched = await invoke(playgroundCtrl.patchSettings, {
     user: { _id: uid },

@@ -2,11 +2,11 @@ const mongoose = require('mongoose');
 
 // Phase 10 · per-user playground appearance (C4). Appearance only in v1 — gates
 // stay always-on and are NOT user-disableable (Decision 2), so no gate flags
-// live here. Defaults when absent: light / mobile.
+// live here. Defaults when absent: light / desktop (fill).
 const PREVIEW_THEMES = ['light', 'dark', 'system'];
 const PREVIEW_DEVICES = ['mobile', 'tablet', 'fill'];
 
-const DEFAULTS = { previewTheme: 'light', previewDevice: 'mobile' };
+const DEFAULTS = { previewTheme: 'light', previewDevice: 'fill' };
 
 const playgroundSettingsSchema = new mongoose.Schema(
   {

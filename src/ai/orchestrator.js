@@ -49,6 +49,12 @@ const MAX_FIX_ROUNDS = 2;
 const OUTPUT_BUDGETS = { trivial: 8192, single: 8192, multi: 16384, full: 32000 };
 const MAX_OUTPUT_TOKENS = parseInt(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS, 10) || 64000;
 
+// Track B — escape hatches on a clarify/redirect (never on decline). The
+// general "best guess" and the page-specific "main section" variants; matched
+// verbatim on resume, so they're shared with the controller.
+const BUILD_ANYWAY = 'Build your best guess anyway';
+const BUILD_MAIN_ANYWAY = 'Build the main section anyway';
+
 const FIX_PROMPT_PATH = path.join(__dirname, 'prompts', 'fix.txt');
 const BUILD_FROM_PLAN_PATH = path.join(__dirname, 'prompts', 'build-from-plan.txt');
 const QA_FIX_PROMPT_PATH = path.join(__dirname, 'prompts', 'qa-fix.txt');
@@ -150,28 +156,52 @@ async function runPipeline(ctx) {
     );
     // The screenshot informs the tier (a full page routes multi/full).
     const tRouter = Date.now();
-    tier = await stages.router.run({ runId, res, prompt: lastUser.content, hasPriorCode, image });
+    const routed = await stages.router.run({ runId, res, prompt: lastUser.content, hasPriorCode, image });
+    tier = routed.tier;
     tl.record('router', Date.now() - tRouter, [`Routed to the ${tier} tier`]);
 
-    // Clarify only where the answer could change the whole build, and never
-    // on a follow-up edit to existing code.
-    if ((tier === 'multi' || tier === 'full') && !hasPriorCode) {
-      const tClarify = Date.now();
-      const decision = await stages.clarify.run({ runId, res, prompt: lastUser.content, image });
-      tl.record('router', Date.now() - tClarify, []);
-      if (decision.questions.length) {
-        return {
-          status: 'needs_input',
-          questions: decision.questions,
-          assumptions: decision.assumptions,
-          tier,
-          plan: null,
-          roundsUsed,
-          attempts,
-        };
+    // Track A/B — non-build outcomes short-circuit the pipeline. Never on a
+    // follow-up edit to existing code: an edit is always a build against the
+    // component already in the chat.
+    if (routed.outcome !== 'build' && !hasPriorCode) {
+      // decline — a firm in-chat refusal turn. No build, no options, no escape.
+      if (routed.outcome === 'decline') {
+        sendEvent(res, {
+          runId,
+          stage: 'router',
+          status: 'done',
+          payload: { tier, outcome: 'decline', message: routed.message },
+        });
+        tl.record('router', 0, ['Declined — outside policy']);
+        return { status: 'declined', message: routed.message, tier, roundsUsed, attempts };
       }
-      tl.record('router', 0, ['Confirmed the approach']);
-      assumptions = decision.assumptions;
+
+      // clarify / redirect — one question via the needs_input path. The Router
+      // wrote `message`; the tappable choices are its options (or detected
+      // components for a page), plus a "build anyway" escape.
+      const picks = routed.options.length ? routed.options : routed.detectedComponents;
+      const escape = routed.reason === 'page' ? BUILD_MAIN_ANYWAY : BUILD_ANYWAY;
+      const questions = [{ question: routed.message, options: [...picks, escape] }];
+      const reason = routed.reason || routed.outcome;
+      sendEvent(res, {
+        runId,
+        stage: 'clarify',
+        status: 'needs_input',
+        payload: { questions, reason },
+      });
+      tl.record('router', 0, [
+        routed.outcome === 'redirect' ? 'Redirected — offered an in-scope path' : 'Asked one question',
+      ]);
+      return {
+        status: 'needs_input',
+        reason,
+        questions,
+        assumptions: '',
+        tier,
+        plan: null,
+        roundsUsed,
+        attempts,
+      };
     }
   }
 
@@ -401,4 +431,12 @@ async function runPipeline(ctx) {
   }
 }
 
-module.exports = { stages, runPipeline, buildFixMessage, extractCode, MAX_FIX_ROUNDS };
+module.exports = {
+  stages,
+  runPipeline,
+  buildFixMessage,
+  extractCode,
+  MAX_FIX_ROUNDS,
+  BUILD_ANYWAY,
+  BUILD_MAIN_ANYWAY,
+};

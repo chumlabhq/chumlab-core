@@ -19,7 +19,7 @@ const OTP_CODE = [
 // require time, which happens when the orchestrator is required below).
 const anthropic = require('../src/ai/anthropic');
 anthropic.sendMessage = async ({ stage }) => {
-  if (stage === 'router') return 'multi';
+  if (stage === 'router') return '{"outcome":"build","tier":"multi"}';
   if (stage === 'clarify') return JSON.stringify({ questions: [], assumptions: 'Six-digit numeric code.' });
   if (stage === 'qa') return JSON.stringify({ findings: [] });
   return '';
@@ -74,8 +74,9 @@ test('OTP golden: labeled starts, verify substeps, 4-entry timeline, deliver met
   });
   const { events } = res;
 
-  // ≥1 labeled start per stage.
-  for (const stage of ['router', 'clarify', 'plan', 'develop', 'verify', 'qa']) {
+  // ≥1 labeled start per stage. The Router now owns routing (no separate
+  // clarify stage), so clarify no longer emits its own start.
+  for (const stage of ['router', 'plan', 'develop', 'verify', 'qa']) {
     const start = events.find((e) => e.stage === stage && e.status === 'start');
     assert.ok(start, `${stage} emitted a start`);
     assert.ok(start.payload && typeof start.payload.label === 'string' && start.payload.label.length, `${stage} start is labeled`);

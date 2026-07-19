@@ -4,7 +4,17 @@ const PipelineRun = require('../models/PipelineRun');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { initSSE, sendEvent } = require('../ai/sse');
-const { runPipeline, buildFixMessage, MAX_FIX_ROUNDS } = require('../ai/orchestrator');
+const {
+  runPipeline,
+  buildFixMessage,
+  MAX_FIX_ROUNDS,
+  BUILD_ANYWAY,
+  BUILD_MAIN_ANYWAY,
+} = require('../ai/orchestrator');
+
+// Prepended to the assistant turn when the user overrides a page redirect with
+// "build the main section anyway" — a soft guide, not a gate.
+const PAGE_SCOPE_CAVEAT = 'Building the main section — it may not capture the full page.';
 const { normalizeImage } = require('../services/assets');
 
 const PROMPT_MAX_LENGTH = 4000;
@@ -97,6 +107,18 @@ exports.generate = asyncHandler(async (req, res) => {
       ],
     });
 
+    // Declined (Track B) - the Router refused a harmful request. Persist the
+    // refusal as an assistant turn; no build, no resume, no escape.
+    if (result.status === 'declined') {
+      await Message.create({ chatId: chat._id, role: 'assistant', content: result.message });
+      await Chat.updateOne({ _id: chat._id }, { $currentDate: { updatedAt: true } });
+      run.status = 'done';
+      run.stages = buildStages(result);
+      await run.save();
+      res.end();
+      return;
+    }
+
     // Clarify paused the run - persist the questions and wait for /resume.
     // No assistant message yet; the user prompt is already saved.
     if (result.status === 'needs_input') {
@@ -106,6 +128,7 @@ exports.generate = asyncHandler(async (req, res) => {
         assumptions: result.assumptions,
         tier: result.tier,
         prompt,
+        ...(result.reason ? { reason: result.reason } : {}),
       };
       run.stages = buildStages(result);
       await run.save();
@@ -233,19 +256,6 @@ exports.resumeRun = asyncHandler(async (req, res) => {
 
   const clarify = run.clarify;
   const questions = clarify.questions || [];
-  const answered = questions
-    .map((q, i) => (answers[i] ? `${q.question} ${answers[i]}` : null))
-    .filter(Boolean);
-
-  let displayText;
-  let modelPrompt;
-  if (answered.length) {
-    displayText = `Clarifications — ${answered.join(' · ')}`;
-    modelPrompt = `${clarify.prompt}\n\nClarifications:\n${answered.map((a) => `- ${a}`).join('\n')}`;
-  } else {
-    displayText = 'Skipped clarifications — building with sensible defaults.';
-    modelPrompt = `${clarify.prompt}\n\nProceed with sensible defaults${clarify.assumptions ? `: ${clarify.assumptions}` : ''}.`;
-  }
 
   const history = (
     await Message.find({ chatId: run.chatId }).sort({ createdAt: -1 }).limit(HISTORY_LIMIT)
@@ -255,6 +265,44 @@ exports.resumeRun = asyncHandler(async (req, res) => {
   // screenshot forward so a paused vision build still sees the image on resume.
   const pausedImage = history.length ? history[history.length - 1].image : null;
   const priorHistory = history.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+
+  const isPageReason = clarify.reason === 'page' || clarify.reason === 'page_scope';
+  let displayText;
+  let modelPrompt;
+  let sectionCaveat = false;
+  if (clarify.reason) {
+    // Router-driven clarify/redirect: the user picked one buildable unit, or the
+    // "build anyway" escape. A pick BECOMES the build (it replaces the prompt);
+    // the escape builds the best single-component interpretation.
+    const pick = String(answers[0] || '').trim();
+    const isEscape = !pick || pick === BUILD_ANYWAY || pick === BUILD_MAIN_ANYWAY;
+    if (isEscape && isPageReason) {
+      sectionCaveat = true;
+      displayText = BUILD_MAIN_ANYWAY;
+      modelPrompt = `${clarify.prompt}\n\nBuild ONLY the single most prominent section of this as one fully responsive component — not the whole page.`;
+    } else if (isEscape) {
+      displayText = BUILD_ANYWAY;
+      modelPrompt = `${clarify.prompt}\n\nBuild your best single-component interpretation of this — pick sensible defaults.`;
+    } else {
+      displayText = pick;
+      modelPrompt = `Build this as a single, fully responsive component${
+        pausedImage ? ', matching the corresponding region of the attached screenshot' : ''
+      }: ${pick}`;
+    }
+  } else {
+    // Legacy clarify-stage resume (no reason): augment the original prompt.
+    const answered = questions
+      .map((q, i) => (answers[i] ? `${q.question} ${answers[i]}` : null))
+      .filter(Boolean);
+    if (answered.length) {
+      displayText = `Clarifications — ${answered.join(' · ')}`;
+      modelPrompt = `${clarify.prompt}\n\nClarifications:\n${answered.map((a) => `- ${a}`).join('\n')}`;
+    } else {
+      displayText = 'Skipped clarifications — building with sensible defaults.';
+      modelPrompt = `${clarify.prompt}\n\nProceed with sensible defaults${clarify.assumptions ? `: ${clarify.assumptions}` : ''}.`;
+    }
+  }
+
   await Message.create({ chatId: run.chatId, role: 'user', content: displayText });
 
   run.status = 'running';
@@ -274,7 +322,8 @@ exports.resumeRun = asyncHandler(async (req, res) => {
       messages: [...priorHistory, { role: 'user', content: modelPrompt }],
     });
 
-    await Message.create({ chatId: run.chatId, role: 'assistant', content: result.text });
+    const assistantText = sectionCaveat ? `${PAGE_SCOPE_CAVEAT}\n\n${result.text}` : result.text;
+    await Message.create({ chatId: run.chatId, role: 'assistant', content: assistantText });
     await Chat.updateOne({ _id: run.chatId }, { $currentDate: { updatedAt: true } });
     run.status = 'done';
     run.fixRounds = result.roundsUsed;

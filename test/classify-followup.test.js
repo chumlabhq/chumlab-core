@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
 
 // classifyFollowup calls anthropic.sendMessage through the module object, so each
 // test drives one classifier outcome (or failure) by reassigning the stub. Tests
@@ -77,4 +79,31 @@ test('ambiguous / unknown intent value → edit (over-trigger guard)', async () 
 test('noop with an empty message degrades to edit (never a blank turn)', async () => {
   anthropic.sendMessage = async () => JSON.stringify({ intent: 'noop', message: '   ' });
   assert.deepEqual(await classifyFollowup(CODE, 'highlight it'), { intent: 'edit' });
+});
+
+// The `message` is markdown rendered as the assistant turn, so its formatting
+// (a lead sentence + bullets when offering alternatives) must survive the parse
+// verbatim — the classifier must not flatten or strip it.
+test('preserves a markdown-bulleted answer intact for the assistant turn', async () => {
+  const msg =
+    'The tiers already share one width. If you want the middle one to stand out, I could:\n\n' +
+    '- make it a bit wider\n' +
+    '- add a soft shadow';
+  anthropic.sendMessage = async () => JSON.stringify({ intent: 'noop', message: msg });
+
+  const r = await classifyFollowup(CODE, 'make all the tiers the same width');
+  assert.equal(r.intent, 'noop');
+  assert.equal(r.message, msg, 'bullets and line breaks survive verbatim');
+  assert.match(r.message, /\n- make it a bit wider/);
+  assert.ok(!r.message.includes(' — '), 'no em-dash connector');
+});
+
+test('the prompt carries the message-style guidance', () => {
+  const prompt = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'ai', 'prompts', 'classify-followup.txt'),
+    'utf8'
+  );
+  assert.match(prompt, /Writing the `message`/);
+  assert.match(prompt, /em-dash/);
+  assert.match(prompt, /markdown bullets/);
 });
